@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="SyncBox/SyncBox.csproj" />
+  <Project Path="SyncBox.Tests/SyncBox.Tests.csproj" />
+</Solution>
