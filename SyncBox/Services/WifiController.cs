@@ -96,9 +96,12 @@ namespace SyncBox.Services
 
                 progress?.Report("Scanning the Wi-Fi networks in range...");
                 session.RequestScan();
+                // Waiting for "any network" returned the stale cache: WlanScan takes a
+                // few seconds and the list still holds the previous scan, so the
+                // controller's own AP could be missing on the first try.
                 IReadOnlyList<WifiNetwork> networks = session.WaitForNetworks(
                     ScanBudget,
-                    list => list.Count > 0,
+                    list => WifiDiscovery.FindControllerNetworks(list).Count > 0,
                     token);
 
                 return new WifiScanResult(true, WifiDiscovery.DescribeScan(networks), networks);

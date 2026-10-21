@@ -150,48 +150,43 @@
                                 </StackPanel>
 
                                 <StackPanel Visibility="{Binding UseWifi, Converter={StaticResource BoolToVisibility}}">
-                                    <TextBlock Text="WI-FI NETWORK" Style="{StaticResource FieldLabel}" />
+                                    <TextBlock Text="DEVICES ON YOUR NETWORK" Style="{StaticResource FieldLabel}" />
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <Grid>
-                                            <ComboBox ItemsSource="{Binding AvailableWifiNetworks}"
-                                                      SelectedItem="{Binding SelectedWifiNetwork}"
+                                            <ComboBox ItemsSource="{Binding LanDevices}"
+                                                      SelectedItem="{Binding SelectedLanDevice}"
                                                       DisplayMemberPath="DisplayName"
-                                                      ToolTip="SyncBox networks found by the last scan." />
-                                            <TextBlock Text="No SyncBox Wi-Fi found yet" Margin="12,0,0,0"
+                                                      ToolTip="Devices that answered on the router your PC is connected to." />
+                                            <TextBlock Text="No devices found yet" Margin="12,0,0,0"
                                                        VerticalAlignment="Center" IsHitTestVisible="False"
                                                        FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
-                                                       Visibility="{Binding HasWifiNetworks, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
+                                                       Visibility="{Binding HasLanDevices, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
                                         </Grid>
-                                        <Button x:Name="ScanWifiButton" Grid.Column="1" Content="Scan" Height="34" MinHeight="34"
+                                        <Button x:Name="FindNetworkDevicesButton" Grid.Column="1" Content="Scan" Height="34" MinHeight="34"
                                                 MinWidth="84" Margin="8,0,0,0"
-                                                Command="{Binding ScanWifiCommand}"
-                                                ToolTip="Look for Wi-Fi networks named like SyncBox." />
+                                                Command="{Binding FindNetworkDevicesCommand}"
+                                                ToolTip="List the devices connected to your router and look for the SyncBox controller." />
                                     </Grid>
 
-                                    <CheckBox Content="Join the SyncBox Wi-Fi automatically on connect"
-                                              IsChecked="{Binding AutoDetectWifi}" Margin="0,14,0,0" />
+                                    <CheckBox Content="Find the controller on my network automatically on connect"
+                                              IsChecked="{Binding AutoFindOnNetwork}" Margin="0,14,0,0" />
 
                                     <Border Background="{StaticResource SyncFieldBrush}" CornerRadius="8"
                                             Padding="10,8" Margin="0,10,0,0"
                                             BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding WifiStatusText}" FontSize="11"
+                                            <TextBlock Text="{Binding NetworkStatusText}" FontSize="11"
                                                        Foreground="{StaticResource SyncMutedBrush}"
                                                        TextWrapping="Wrap" />
-                                            <TextBlock Text="Auto-connect joins the strongest network whose name matches SyncBox, then uses its gateway as the controller IP."
+                                            <TextBlock Text="Scans the router your PC is connected to, not the Wi-Fi networks in range, then picks the device whose name or handshake identifies it as a SyncBox."
                                                        FontSize="10" Foreground="{StaticResource SyncFaintBrush}"
                                                        TextWrapping="Wrap" Margin="0,4,0,0" />
                                         </StackPanel>
                                     </Border>
-
-                                    <TextBlock Text="WIFI PASSWORD (OPTIONAL)" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
-                                    <PasswordBox x:Name="WifiPasswordBox" MaxLength="128"
-                                                 PasswordChanged="OnWifiPasswordChanged"
-                                                 ToolTip="Only needed when the SyncBox network is secured and Windows has not stored its password yet. Saved in settings.json on this PC." />
 
                                     <UniformGrid Columns="2" Margin="0,12,0,0">
                                         <StackPanel Margin="0,0,5,0">
@@ -207,6 +202,56 @@
                                     <TextBlock Text="UDP is connectionless: SyncBox cannot confirm the controller is listening."
                                                FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
                                                TextWrapping="Wrap" Margin="0,10,0,0" />
+
+                                    <Border Height="1" Background="{StaticResource SyncBorderBrush}" Margin="0,14,0,0" />
+
+                                    <CheckBox Content="Use the controller's own Wi-Fi access point instead"
+                                              IsChecked="{Binding UseControllerAp}" Margin="0,12,0,0" />
+
+                                    <StackPanel Visibility="{Binding UseControllerAp, Converter={StaticResource BoolToVisibility}}">
+                                        <TextBlock Text="WI-FI NETWORK" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid>
+                                                <ComboBox ItemsSource="{Binding AvailableWifiNetworks}"
+                                                          SelectedItem="{Binding SelectedWifiNetwork}"
+                                                          DisplayMemberPath="DisplayName"
+                                                          ToolTip="SyncBox networks found by the last scan." />
+                                                <TextBlock Text="No SyncBox Wi-Fi found yet" Margin="12,0,0,0"
+                                                           VerticalAlignment="Center" IsHitTestVisible="False"
+                                                           FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
+                                                           Visibility="{Binding HasWifiNetworks, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
+                                            </Grid>
+                                            <Button x:Name="ScanWifiButton" Grid.Column="1" Content="Scan" Height="34" MinHeight="34"
+                                                    MinWidth="84" Margin="8,0,0,0"
+                                                    Command="{Binding ScanWifiCommand}"
+                                                    ToolTip="Look for Wi-Fi networks named like SyncBox." />
+                                        </Grid>
+
+                                        <CheckBox Content="Join it automatically on connect"
+                                                  IsChecked="{Binding AutoDetectWifi}" Margin="0,14,0,0" />
+
+                                        <Border Background="{StaticResource SyncFieldBrush}" CornerRadius="8"
+                                                Padding="10,8" Margin="0,10,0,0"
+                                                BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding WifiStatusText}" FontSize="11"
+                                                           Foreground="{StaticResource SyncMutedBrush}"
+                                                           TextWrapping="Wrap" />
+                                                <TextBlock Text="Only for an access point created by the controller. The strongest matching network is joined and its gateway becomes the controller IP."
+                                                           FontSize="10" Foreground="{StaticResource SyncFaintBrush}"
+                                                           TextWrapping="Wrap" Margin="0,4,0,0" />
+                                            </StackPanel>
+                                        </Border>
+
+                                        <TextBlock Text="WIFI PASSWORD (OPTIONAL)" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
+                                        <PasswordBox x:Name="WifiPasswordBox" MaxLength="128"
+                                                     PasswordChanged="OnWifiPasswordChanged"
+                                                     ToolTip="Only needed when that access point is secured. Saved in settings.json on this PC." />
+                                    </StackPanel>
                                 </StackPanel>
 
                                 <Button Content="{Binding ConnectButtonText}" Height="46" Margin="0,16,0,0"

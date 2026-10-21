@@ -1,0 +1,783 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace SyncBox.Services
+{
+    public sealed class LanDevice
+    {
+        public LanDevice(
+            IPAddress address,
+            string? hostName,
+            string? macAddress,
+            string? vendor,
+            string? handshake,
+            bool ledPortOpen)
+        {
+            Address = address;
+            HostName = string.IsNullOrWhiteSpace(hostName) ? null : hostName.Trim();
+            MacAddress = string.IsNullOrWhiteSpace(macAddress) ? null : macAddress.Trim();
+            Vendor = string.IsNullOrWhiteSpace(vendor) ? null : vendor;
+            Handshake = string.IsNullOrWhiteSpace(handshake) ? null : handshake.Trim();
+            LedPortOpen = ledPortOpen;
+            Score = LanDiscovery.ScoreDevice(HostName, MacAddress, Handshake, ledPortOpen);
+        }
+
+        public IPAddress Address { get; }
+
+        public string? HostName { get; }
+
+        public string? MacAddress { get; }
+
+        public string? Vendor { get; }
+
+        public string? Handshake { get; }
+
+        public bool LedPortOpen { get; }
+
+        public int Score { get; }
+
+        public string AddressText => Address.ToString();
+
+        public bool LooksLikeController => Score >= LanDiscovery.ControllerScoreThreshold;
+
+        /// <summary>"192.168.1.42 - Sync-Box-V1 (Espressif)" style label for the ComboBox.</summary>
+        public string DisplayName
+        {
+            get
+            {
+                string label = Handshake ?? HostName ?? Vendor ?? "unnamed device";
+                if (HostName is not null && Vendor is not null && !string.Equals(label, Vendor, StringComparison.Ordinal))
+                {
+                    label = $"{label} ({Vendor})";
+                }
+
+                return $"{AddressText} - {label}";
+            }
+        }
+
+        public override string ToString() => DisplayName;
+    }
+
+    public sealed class LanScanResult
+    {
+        public LanScanResult(
+            bool scanned,
+            string summary,
+            IReadOnlyList<LanDevice> devices,
+            IReadOnlyList<string> subnets)
+        {
+            Scanned = scanned;
+            Summary = summary;
+            Devices = devices;
+            Subnets = subnets;
+        }
+
+        /// <summary>True when at least one local IPv4 subnet was actually swept.</summary>
+        public bool Scanned { get; }
+
+        public string Summary { get; }
+
+        public IReadOnlyList<LanDevice> Devices { get; }
+
+        public IReadOnlyList<string> Subnets { get; }
+    }
+
+    /// <summary>
+    /// Finds the controller as a device on the router the PC is connected to, instead
+    /// of scanning Wi-Fi SSIDs. The PC's own IPv4 subnets are swept with ICMP, the ARP
+    /// table fills in MAC addresses, and every live host is asked for its name and
+    /// probed on the LED port with the same <c>AF 05 D1</c> handshake used over serial.
+    /// </summary>
+    public static class LanDiscovery
+    {
+        public const int MaxHostsPerSubnet = 1024;
+
+        /// <summary>Score a device needs before Connect picks it without the user choosing.</summary>
+        public const int ControllerScoreThreshold = 80;
+
+        private const int PingTimeoutMs = 700;
+        private const int ResolveTimeoutMs = 600;
+        private const int HandshakeTimeoutMs = 400;
+        private const int PingConcurrency = 64;
+        private const int ProbeConcurrency = 8;
+
+        private static readonly string[] VirtualAdapterMarkers =
+        {
+            "Virtual", "VMware", "VirtualBox", "Hyper-V", "vEthernet", "Loopback",
+            "Pseudo", "Tailscale", "WireGuard", "OpenVPN", "TAP-", "WAN Miniport"
+        };
+
+        private static readonly string[] EspressifPrefixes =
+        {
+            "24:0A:C4", "24:62:AB", "2C:3A:E8", "30:AE:A4", "34:94:54", "3C:61:05",
+            "3C:71:BF", "40:91:51", "44:17:93", "48:27:E2", "4C:11:AE", "54:5A:A6",
+            "5C:CF:7F", "60:01:94", "68:C6:3A", "70:03:9F", "7C:9E:BD", "7C:DF:A1",
+            "80:64:6F", "84:0D:8E", "84:CC:A8", "84:F3:EB", "8C:AA:B5", "90:38:0C",
+            "94:B5:55", "94:B9:7E", "A0:20:A6", "A4:7B:9D", "A4:CF:12", "AC:67:B2",
+            "B4:E6:2D", "B8:F0:09", "BC:DD:C2", "C4:4F:33", "C8:2B:96", "CC:50:E3",
+            "D8:A0:1D", "D8:F1:5B", "DC:4F:22", "E0:98:06", "E8:68:E7", "E8:DB:84",
+            "EC:FA:BC", "F0:08:D1", "F4:CF:A2", "FC:F5:C4"
+        };
+
+        public static bool IsSupported => OperatingSystem.IsWindows();
+
+        /// <summary>Sweeps every local IPv4 subnet and describes what answered.</summary>
+        public static LanScanResult Scan(int port, IProgress<string>? progress = null, CancellationToken token = default)
+        {
+            if (!IsSupported)
+            {
+                return new LanScanResult(false, "Network scanning is only available on Windows.", Array.Empty<LanDevice>(), Array.Empty<string>());
+            }
+
+            try
+            {
+                IReadOnlyList<LocalSubnet> subnets = FindLocalSubnets();
+                if (subnets.Count == 0)
+                {
+                    return new LanScanResult(
+                        false,
+                        "No IPv4 network connection was found. Connect the PC to the same router as the controller.",
+                        Array.Empty<LanDevice>(),
+                        Array.Empty<string>());
+                }
+
+                var subnetsText = subnets.Select(subnet => subnet.ToString()).ToList();
+                progress?.Report($"Scanning {string.Join(", ", subnetsText)}...");
+
+                var alive = new HashSet<IPAddress>();
+                foreach (LocalSubnet subnet in subnets)
+                {
+                    token.ThrowIfCancellationRequested();
+                    IReadOnlyList<IPAddress> hosts = EnumerateHosts(subnet.Address, subnet.Mask);
+                    progress?.Report($"Pinging {hosts.Count} address(es) on {subnet}...");
+                    IReadOnlyCollection<IPAddress> answered = PingSweep(hosts, token);
+                    foreach (IPAddress address in answered)
+                    {
+                        alive.Add(address);
+                    }
+                }
+
+                IReadOnlyDictionary<IPAddress, string> arp = ReadArpTable();
+
+                // Devices that never answer ping but still sit in the ARP cache were
+                // talking to this PC recently, so they are worth identifying too.
+                foreach (KeyValuePair<IPAddress, string> entry in arp)
+                {
+                    if (subnets.Any(subnet => subnet.Contains(entry.Key)))
+                    {
+                        alive.Add(entry.Key);
+                    }
+                }
+
+                if (alive.Count == 0)
+                {
+                    return new LanScanResult(
+                        true,
+                        $"No devices answered on {string.Join(", ", subnetsText)}. Check that the controller is powered on and on the same router.",
+                        Array.Empty<LanDevice>(),
+                        subnetsText);
+                }
+
+                progress?.Report($"Identifying {alive.Count} device(s)...");
+                IReadOnlyList<LanDevice> devices = Identify(alive, arp, port, token);
+
+                string summary = DescribeScan(devices, subnetsText);
+                return new LanScanResult(true, summary, devices, subnetsText);
+            }
+            catch (OperationCanceledException)
+            {
+                return new LanScanResult(false, "The network scan was cancelled or timed out.", Array.Empty<LanDevice>(), Array.Empty<string>());
+            }
+            catch (Exception ex)
+            {
+                return new LanScanResult(false, "The network scan failed: " + ex.Message, Array.Empty<LanDevice>(), Array.Empty<string>());
+            }
+        }
+
+        public static IReadOnlyList<LocalSubnet> FindLocalSubnets()
+        {
+            var subnets = new List<LocalSubnet>();
+            try
+            {
+                foreach (NetworkInterface adapter in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (adapter.OperationalStatus != OperationalStatus.Up ||
+                        adapter.NetworkInterfaceType == NetworkInterfaceType.Loopback ||
+                        adapter.NetworkInterfaceType == NetworkInterfaceType.Tunnel ||
+                        IsVirtualAdapter(adapter))
+                    {
+                        continue;
+                    }
+
+                    IPInterfaceProperties properties;
+                    try
+                    {
+                        properties = adapter.GetIPProperties();
+                    }
+                    catch (NetworkInformationException)
+                    {
+                        continue;
+                    }
+
+                    foreach (UnicastIPAddressInformation unicast in properties.UnicastAddresses)
+                    {
+                        IPAddress address = unicast.Address;
+                        IPAddress? mask = unicast.IPv4Mask;
+                        if (address.AddressFamily != AddressFamily.InterNetwork ||
+                            mask is null ||
+                            mask.Equals(IPAddress.Any) ||
+                            IsApipa(address))
+                        {
+                            continue;
+                        }
+
+                        subnets.Add(new LocalSubnet(address, mask));
+                    }
+                }
+            }
+            catch (NetworkInformationException)
+            {
+            }
+
+            return subnets
+                .GroupBy(subnet => subnet.ToString(), StringComparer.Ordinal)
+                .Select(group => group.First())
+                .Take(3)
+                .ToList();
+        }
+
+        public static IReadOnlyList<IPAddress> EnumerateHosts(
+            IPAddress address,
+            IPAddress mask,
+            int maxHosts = MaxHostsPerSubnet)
+        {
+            uint ip = ToUInt32(address);
+            uint maskValue = ToUInt32(mask);
+            uint network = ip & maskValue;
+            uint broadcast = network | ~maskValue;
+            uint hostCount = broadcast > network ? broadcast - network - 1 : 0;
+
+            var hosts = new List<IPAddress>();
+            uint limit = Math.Min(hostCount, (uint)Math.Max(1, maxHosts));
+            for (uint offset = 1; offset <= limit; offset++)
+            {
+                hosts.Add(FromUInt32(network + offset));
+            }
+
+            return hosts;
+        }
+
+        /// <summary>Reuses the SSID rules, so "Sync-Box-V1" is a name match.</summary>
+        public static int ScoreHostName(string? hostName)
+        {
+            int rank = WifiDiscovery.Rank(hostName);
+            return rank switch
+            {
+                WifiDiscovery.ExactMatchRank => 95,
+                WifiDiscovery.PrefixMatchRank => 90,
+                WifiDiscovery.ContainsMatchRank => 85,
+                _ => 0
+            };
+        }
+
+        public static bool IsEspressifOui(string? macAddress)
+        {
+            if (string.IsNullOrWhiteSpace(macAddress) || macAddress.Length < 8)
+            {
+                return false;
+            }
+
+            string prefix = macAddress.Trim().Replace('-', ':').ToUpperInvariant()[..8];
+            return EspressifPrefixes.Contains(prefix, StringComparer.Ordinal);
+        }
+
+        public static string? VendorFor(string? macAddress) =>
+            IsEspressifOui(macAddress) ? "Espressif" : null;
+
+        public static int ScoreDevice(string? hostName, string? macAddress, string? handshake, bool ledPortOpen)
+        {
+            if (!string.IsNullOrWhiteSpace(handshake) &&
+                handshake.Contains(DeviceDiscovery.FeedbackPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return 100;
+            }
+
+            int best = ScoreHostName(hostName);
+            if (IsEspressifOui(macAddress))
+            {
+                best = Math.Max(best, 55);
+            }
+
+            if (ledPortOpen)
+            {
+                best = Math.Max(best, 60);
+            }
+
+            return best > 0 ? best : 10;
+        }
+
+        /// <summary>
+        /// Picks the controller: the caller's previous device wins while it still answers
+        /// and looks like a controller, otherwise the best scored device above the
+        /// threshold. Devices that only answered ping are never picked automatically.
+        /// </summary>
+        public static LanDevice? ChooseControllerDevice(IReadOnlyList<LanDevice>? devices, string? preferredAddress)
+        {
+            if (devices is null || devices.Count == 0)
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(preferredAddress))
+            {
+                LanDevice? preferred = devices.FirstOrDefault(device =>
+                    string.Equals(device.AddressText, preferredAddress.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (preferred is not null && preferred.LooksLikeController)
+                {
+                    return preferred;
+                }
+            }
+
+            return devices
+                .Where(device => device.LooksLikeController)
+                .OrderByDescending(device => device.Score)
+                .ThenBy(device => device.Address, IpAddressComparer.Instance)
+                .FirstOrDefault();
+        }
+
+        public static string DescribeScan(IReadOnlyList<LanDevice> devices, IReadOnlyList<string> subnets)
+        {
+            string where = subnets.Count == 0 ? "the local network" : string.Join(", ", subnets);
+            if (devices.Count == 0)
+            {
+                return $"No devices answered on {where}.";
+            }
+
+            LanDevice? best = ChooseControllerDevice(devices, null);
+            string found = $"{devices.Count} device(s) on {where}.";
+            return best is null
+                ? found + " None of them obviously identifies as a SyncBox; pick the controller from the list."
+                : found + $" The controller is probably {best.DisplayName}.";
+        }
+
+        private static IReadOnlyList<LanDevice> Identify(
+            IReadOnlyCollection<IPAddress> addresses,
+            IReadOnlyDictionary<IPAddress, string> arp,
+            int port,
+            CancellationToken token)
+        {
+            var devices = new List<LanDevice>();
+            using var throttle = new SemaphoreSlim(ProbeConcurrency);
+            var tasks = new List<Task>();
+
+            foreach (IPAddress address in addresses)
+            {
+                token.ThrowIfCancellationRequested();
+                tasks.Add(Task.Run(async () =>
+                {
+                    await throttle.WaitAsync(token).ConfigureAwait(false);
+                    try
+                    {
+                        string? hostName = await ResolveHostNameAsync(address, token).ConfigureAwait(false);
+                        string? handshake = null;
+                        bool portOpen = false;
+
+                        if (port > 0)
+                        {
+                            handshake = await ProbeHandshakeAsync(address, port, token).ConfigureAwait(false);
+                            if (handshake is null)
+                            {
+                                portOpen = await ProbeTcpAsync(address, port, token).ConfigureAwait(false);
+                            }
+                        }
+
+                        arp.TryGetValue(address, out string? mac);
+                        var device = new LanDevice(
+                            address,
+                            hostName,
+                            mac,
+                            VendorFor(mac),
+                            handshake,
+                            portOpen);
+
+                        lock (devices)
+                        {
+                            devices.Add(device);
+                        }
+                    }
+                    finally
+                    {
+                        throttle.Release();
+                    }
+                }, token));
+            }
+
+            try
+            {
+                Task.WaitAll(tasks.ToArray(), token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            IReadOnlyList<LanDevice> snapshot;
+            lock (devices)
+            {
+                snapshot = devices.ToList();
+            }
+
+            return snapshot
+                .OrderByDescending(device => device.Score)
+                .ThenBy(device => device.Address, IpAddressComparer.Instance)
+                .ToList();
+        }
+
+        private static IReadOnlyCollection<IPAddress> PingSweep(
+            IReadOnlyList<IPAddress> hosts,
+            CancellationToken token)
+        {
+            var answered = new List<IPAddress>();
+            using var throttle = new SemaphoreSlim(PingConcurrency);
+            var tasks = new List<Task>();
+
+            foreach (IPAddress host in hosts)
+            {
+                if (token.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                tasks.Add(Task.Run(async () =>
+                {
+                    await throttle.WaitAsync(token).ConfigureAwait(false);
+                    try
+                    {
+                        using var ping = new Ping();
+                        PingReply reply = await ping
+                            .SendPingAsync(host, PingTimeoutMs)
+                            .WaitAsync(token)
+                            .ConfigureAwait(false);
+                        if (reply.Status == IPStatus.Success)
+                        {
+                            lock (answered)
+                            {
+                                answered.Add(host);
+                            }
+                        }
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                    }
+                    finally
+                    {
+                        throttle.Release();
+                    }
+                }, token));
+            }
+
+            try
+            {
+                Task.WaitAll(tasks.ToArray(), token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            lock (answered)
+            {
+                return answered.ToList();
+            }
+        }
+
+        private static async Task<string?> ResolveHostNameAsync(IPAddress address, CancellationToken token)
+        {
+            try
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                timeout.CancelAfter(ResolveTimeoutMs);
+                IPHostEntry entry = await Dns
+                    .GetHostEntryAsync(address.ToString(), timeout.Token)
+                    .WaitAsync(timeout.Token)
+                    .ConfigureAwait(false);
+                string? name = entry.HostName;
+                if (string.IsNullOrWhiteSpace(name) || name.Equals(address.ToString(), StringComparison.Ordinal))
+                {
+                    return null;
+                }
+
+                int dot = name.IndexOf('.');
+                return dot > 0 ? name[..dot] : name;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
+            {
+                return null;
+            }
+        }
+
+        private static async Task<string?> ProbeHandshakeAsync(IPAddress address, int port, CancellationToken token)
+        {
+            try
+            {
+                using var client = new UdpClient();
+                client.Connect(address, port);
+                byte[] preamble = DeviceDiscovery.Preamble.ToArray();
+                client.Send(preamble, preamble.Length);
+
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                timeout.CancelAfter(HandshakeTimeoutMs);
+                UdpReceiveResult result = await client.ReceiveAsync(timeout.Token).ConfigureAwait(false);
+                if (result.Buffer.Length == 0)
+                {
+                    return null;
+                }
+
+                string text = Encoding.ASCII.GetString(result.Buffer);
+                return DeviceDiscovery.ExtractFirmwareVersion(text) is not null ? text : null;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
+            {
+                return null;
+            }
+        }
+
+        private static async Task<bool> ProbeTcpAsync(IPAddress address, int port, CancellationToken token)
+        {
+            using var client = new TcpClient();
+            try
+            {
+                Task connect = client.ConnectAsync(address, port, token);
+                Task finished = await Task
+                    .WhenAny(connect, Task.Delay(HandshakeTimeoutMs, token))
+                    .ConfigureAwait(false);
+                return finished == connect && client.Connected;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
+            {
+                return false;
+            }
+        }
+
+        private static IReadOnlyDictionary<IPAddress, string> ReadArpTable()
+        {
+            var table = new Dictionary<IPAddress, string>();
+            if (!OperatingSystem.IsWindows())
+            {
+                return table;
+            }
+
+            IntPtr buffer = IntPtr.Zero;
+            try
+            {
+                int size = 0;
+                int first = GetIpNetTable(IntPtr.Zero, ref size, true);
+                if (size <= 0)
+                {
+                    return table;
+                }
+
+                buffer = Marshal.AllocHGlobal(size);
+                int result = GetIpNetTable(buffer, ref size, true);
+                if (result != 0)
+                {
+                    return table;
+                }
+
+                int rowSize = Marshal.SizeOf<MibIpNetRow>();
+                int count = Marshal.ReadInt32(buffer);
+                for (int index = 0; index < count; index++)
+                {
+                    IntPtr rowPointer = IntPtr.Add(buffer, 4 + (index * rowSize));
+                    MibIpNetRow row = Marshal.PtrToStructure<MibIpNetRow>(rowPointer);
+                    if (row.PhysAddrLen == 0 || row.PhysAddr is null)
+                    {
+                        continue;
+                    }
+
+                    var ip = new IPAddress((long)row.Addr);
+                    if (IsApipa(ip) || ip.Equals(IPAddress.Any) || IsMulticast(ip))
+                    {
+                        continue;
+                    }
+
+                    int length = Math.Min((int)row.PhysAddrLen, row.PhysAddr.Length);
+                    if (length == 0)
+                    {
+                        continue;
+                    }
+
+                    string mac = string.Join(":", row.PhysAddr.Take(length).Select(part => part.ToString("X2")));
+                    table[ip] = mac;
+                }
+            }
+            catch (DllNotFoundException)
+            {
+            }
+            catch (EntryPointNotFoundException)
+            {
+            }
+            finally
+            {
+                if (buffer != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(buffer);
+                }
+            }
+
+            return table;
+        }
+
+        private static bool IsVirtualAdapter(NetworkInterface adapter)
+        {
+            if (string.IsNullOrWhiteSpace(adapter.Description))
+            {
+                return false;
+            }
+
+            return VirtualAdapterMarkers.Any(marker =>
+                adapter.Description.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsApipa(IPAddress address)
+        {
+            byte[] bytes = address.GetAddressBytes();
+            return bytes.Length == 4 && bytes[0] == 169 && bytes[1] == 254;
+        }
+
+        private static bool IsMulticast(IPAddress address)
+        {
+            byte[] bytes = address.GetAddressBytes();
+            return bytes.Length == 4 && bytes[0] >= 224;
+        }
+
+        private static uint ToUInt32(IPAddress address)
+        {
+            byte[] bytes = address.GetAddressBytes();
+            if (bytes.Length != 4)
+            {
+                return 0;
+            }
+
+            return ((uint)bytes[0] << 24) | ((uint)bytes[1] << 16) | ((uint)bytes[2] << 8) | bytes[3];
+        }
+
+        private static IPAddress FromUInt32(uint value) =>
+            new(new[] { (byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value });
+
+        private sealed class IpAddressComparer : IComparer<IPAddress>
+        {
+            public static readonly IpAddressComparer Instance = new();
+
+            public int Compare(IPAddress? left, IPAddress? right)
+            {
+                if (left is null || right is null)
+                {
+                    return left is null ? (right is null ? 0 : -1) : 1;
+                }
+
+                return ToUInt32(left).CompareTo(ToUInt32(right));
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MibIpNetRow
+        {
+            public int Index;
+
+            public int PhysAddrLen;
+
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
+            public byte[]? PhysAddr;
+
+            public uint Addr;
+
+            public int Type;
+        }
+
+        [DllImport("iphlpapi.dll", SetLastError = true)]
+        private static extern int GetIpNetTable(IntPtr table, ref int size, bool sort);
+    }
+
+    public sealed class LocalSubnet
+    {
+        public LocalSubnet(IPAddress address, IPAddress mask)
+        {
+            Address = address;
+            Mask = mask;
+            PrefixLength = CountPrefixBits(mask);
+            Network = AddressNetwork(address, mask);
+        }
+
+        public IPAddress Address { get; }
+
+        public IPAddress Mask { get; }
+
+        public int PrefixLength { get; }
+
+        public IPAddress Network { get; }
+
+        public bool Contains(IPAddress candidate)
+        {
+            byte[] networkBytes = Network.GetAddressBytes();
+            byte[] maskBytes = Mask.GetAddressBytes();
+            byte[] candidateBytes = candidate.GetAddressBytes();
+            if (networkBytes.Length != 4 || candidateBytes.Length != 4)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < 4; index++)
+            {
+                if ((networkBytes[index] & maskBytes[index]) != (candidateBytes[index] & maskBytes[index]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        public override string ToString() => $"{Network}/{PrefixLength}";
+
+        private static int CountPrefixBits(IPAddress mask)
+        {
+            int bits = 0;
+            foreach (byte part in mask.GetAddressBytes())
+            {
+                for (int bit = 7; bit >= 0; bit--)
+                {
+                    if ((part & (1 << bit)) != 0)
+                    {
+                        bits++;
+                    }
+                    else
+                    {
+                        return bits;
+                    }
+                }
+            }
+
+            return bits;
+        }
+
+        private static IPAddress AddressNetwork(IPAddress address, IPAddress mask)
+        {
+            byte[] addressBytes = address.GetAddressBytes();
+            byte[] maskBytes = mask.GetAddressBytes();
+            var network = new byte[addressBytes.Length];
+            for (int index = 0; index < addressBytes.Length; index++)
+            {
+                network[index] = (byte)(addressBytes[index] & maskBytes[index]);
+            }
+
+            return new IPAddress(network);
+        }
+    }
+}

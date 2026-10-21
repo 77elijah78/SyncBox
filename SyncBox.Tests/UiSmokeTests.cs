@@ -94,6 +94,15 @@ namespace SyncBox.Tests
                         failures.Add("The Wi-Fi Scan button is not bound to a command.");
                     }
 
+                    if (window.FindName("FindNetworkDevicesButton") is not Button findButton)
+                    {
+                        failures.Add("The network Scan button is missing from the interface card.");
+                    }
+                    else if (findButton.Command is null)
+                    {
+                        failures.Add("The network Scan button is not bound to a command.");
+                    }
+
                     if (window.FindName("WifiPasswordBox") is not PasswordBox)
                     {
                         failures.Add("The Wi-Fi password box is missing from the interface card.");
@@ -135,6 +144,8 @@ namespace SyncBox.Tests
                         Check(viewModel.FrameByteSize == Services.LedProtocol.FrameSize(viewModel.TotalLedCount), "Frame byte size does not match the protocol.", failures);
                         Check(viewModel.SettingsPath.Length > 0, "No settings path was resolved.", failures);
                         Check(viewModel.WifiStatusText.Length > 0, "The Wi-Fi status line has no text.", failures);
+                        Check(viewModel.NetworkStatusText.Length > 0, "The network status line has no text.", failures);
+                        Check(viewModel.SelectedLanDevice is null || viewModel.LanDevices.Contains(viewModel.SelectedLanDevice!), "The selected network device is not in the discovered list.", failures);
                         Check(viewModel.SelectedWifiNetwork is null || viewModel.AvailableWifiNetworks.Contains(viewModel.SelectedWifiNetwork!), "The selected Wi-Fi network is not in the scanned list.", failures);
 
                         viewModel.Dispose();

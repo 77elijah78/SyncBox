@@ -21,6 +21,10 @@ namespace SyncBox.Services
 
         public bool AutoDetectWifi { get; set; } = true;
 
+        public bool AutoFindOnNetwork { get; set; } = true;
+
+        public bool UseControllerAp { get; set; }
+
         public string WifiPassword { get; set; } = string.Empty;
 
         public int HorizontalLedCount { get; set; } = 19;
