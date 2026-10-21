@@ -230,11 +230,23 @@ namespace SyncBox.Services
                     foreach (UnicastIPAddressInformation unicast in properties.UnicastAddresses)
                     {
                         IPAddress address = unicast.Address;
-                        IPAddress? mask = unicast.IPv4Mask;
-                        if (address.AddressFamily != AddressFamily.InterNetwork ||
-                            mask is null ||
-                            mask.Equals(IPAddress.Any) ||
-                            IsApipa(address))
+                        if (address.AddressFamily != AddressFamily.InterNetwork || IsApipa(address))
+                        {
+                            continue;
+                        }
+
+                        IPAddress? mask;
+                        try
+                        {
+                            // IPv4Mask is not supported for IPv6 entries on every platform.
+                            mask = unicast.IPv4Mask;
+                        }
+                        catch (NotSupportedException)
+                        {
+                            continue;
+                        }
+
+                        if (mask is null || mask.Equals(IPAddress.Any))
                         {
                             continue;
                         }
@@ -427,6 +439,11 @@ namespace SyncBox.Services
             catch (OperationCanceledException)
             {
             }
+            catch (AggregateException)
+            {
+                // A cancelled probe rejects with AggregateException; the devices that did
+                // answer are still worth reporting.
+            }
 
             IReadOnlyList<LanDevice> snapshot;
             lock (devices)
@@ -488,6 +505,9 @@ namespace SyncBox.Services
                 Task.WaitAll(tasks.ToArray(), token);
             }
             catch (OperationCanceledException)
+            {
+            }
+            catch (AggregateException)
             {
             }
 
@@ -553,11 +573,27 @@ namespace SyncBox.Services
             using var client = new TcpClient();
             try
             {
-                Task connect = client.ConnectAsync(address, port, token);
+                // TcpClient.ConnectAsync(..., CancellationToken) returns ValueTask, not
+                // Task, so it has to be converted before it can race the timeout.
+                Task connect = client.ConnectAsync(address, port, token).AsTask();
                 Task finished = await Task
                     .WhenAny(connect, Task.Delay(HandshakeTimeoutMs, token))
                     .ConfigureAwait(false);
-                return finished == connect && client.Connected;
+
+                if (finished != connect)
+                {
+                    // The timeout won the race: observe the connect task so its eventual
+                    // failure is not left unobserved when the client is disposed.
+                    _ = connect.ContinueWith(
+                        task => _ = task.Exception,
+                        CancellationToken.None,
+                        TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
+                    return false;
+                }
+
+                await connect.ConfigureAwait(false);
+                return client.Connected;
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
             {
