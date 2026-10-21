@@ -85,6 +85,20 @@ namespace SyncBox.Tests
                         failures.Add("The Detect device button is not bound to a command.");
                     }
 
+                    if (window.FindName("ScanWifiButton") is not Button scanButton)
+                    {
+                        failures.Add("The Wi-Fi Scan button is missing from the interface card.");
+                    }
+                    else if (scanButton.Command is null)
+                    {
+                        failures.Add("The Wi-Fi Scan button is not bound to a command.");
+                    }
+
+                    if (window.FindName("WifiPasswordBox") is not PasswordBox)
+                    {
+                        failures.Add("The Wi-Fi password box is missing from the interface card.");
+                    }
+
                     if (window.DataContext is not MainViewModel viewModel)
                     {
                         failures.Add("The data context is not a MainViewModel.");
@@ -120,6 +134,8 @@ namespace SyncBox.Tests
                         Check(viewModel.LedPreviewItems.Count == viewModel.TotalLedCount, "Preview was not rebuilt for the new layout.", failures);
                         Check(viewModel.FrameByteSize == Services.LedProtocol.FrameSize(viewModel.TotalLedCount), "Frame byte size does not match the protocol.", failures);
                         Check(viewModel.SettingsPath.Length > 0, "No settings path was resolved.", failures);
+                        Check(viewModel.WifiStatusText.Length > 0, "The Wi-Fi status line has no text.", failures);
+                        Check(viewModel.SelectedWifiNetwork is null || viewModel.AvailableWifiNetworks.Contains(viewModel.SelectedWifiNetwork!), "The selected Wi-Fi network is not in the scanned list.", failures);
 
                         viewModel.Dispose();
                     }

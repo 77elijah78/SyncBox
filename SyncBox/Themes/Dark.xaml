@@ -13,16 +13,23 @@
     <SolidColorBrush x:Key="SyncBorderHoverBrush" Color="#3E3E5C" />
     <SolidColorBrush x:Key="SyncAccentBrush" Color="#A855F7" />
     <SolidColorBrush x:Key="SyncAccentHoverBrush" Color="#8B3FE0" />
+    <LinearGradientBrush x:Key="SyncAccentGradient" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#C084FC" />
+        <GradientStop Offset="1" Color="#7C3AED" />
+    </LinearGradientBrush>
     <SolidColorBrush x:Key="SyncTextBrush" Color="#F0F0F0" />
-    <SolidColorBrush x:Key="SyncMutedBrush" Color="#8A8A99" />
-    <SolidColorBrush x:Key="SyncFaintBrush" Color="#55555F" />
+    <SolidColorBrush x:Key="SyncMutedBrush" Color="#9B9BB0" />
+    <SolidColorBrush x:Key="SyncFaintBrush" Color="#74748A" />
     <SolidColorBrush x:Key="SyncSuccessBrush" Color="#22C55E" />
     <SolidColorBrush x:Key="SyncDangerBrush" Color="#EF4444" />
     <SolidColorBrush x:Key="SyncDangerHoverBrush" Color="#DC2626" />
     <SolidColorBrush x:Key="SyncTrackBrush" Color="#26263A" />
 
+    <!-- Foreground is intentionally not set here: it must keep inheriting from the
+         Window, Button, ComboBoxItem or CheckBox that hosts the TextBlock. Forcing it
+         here would win over those templates (WPF style setters beat inheritance) and
+         break hover states plus coloured buttons such as START and STOP. -->
     <Style TargetType="{x:Type TextBlock}">
-        <Setter Property="Foreground" Value="{StaticResource SyncTextBrush}" />
         <Setter Property="FontFamily" Value="{StaticResource SyncFont}" />
         <Setter Property="FontSize" Value="{StaticResource SyncFontSize}" />
         <Setter Property="TextOptions.TextFormattingMode" Value="Ideal" />
@@ -105,9 +112,37 @@
         <Setter Property="Background" Value="{StaticResource SyncFieldBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource SyncBorderBrush}" />
         <Setter Property="CaretBrush" Value="{StaticResource SyncAccentBrush}" />
+        <Setter Property="SelectionBrush" Value="{StaticResource SyncAccentBrush}" />
         <Setter Property="FontFamily" Value="{StaticResource SyncFont}" />
+        <Setter Property="FontSize" Value="{StaticResource SyncFontSize}" />
         <Setter Property="Padding" Value="9,7" />
         <Setter Property="MinHeight" Value="34" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type PasswordBox}">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="1" CornerRadius="8" SnapsToDevicePixels="True">
+                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"
+                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                      Focusable="False" HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollBarVisibility="Hidden" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource SyncAccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource SyncBorderHoverBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style TargetType="{x:Type ToggleButton}">
@@ -122,13 +157,16 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type ToggleButton}">
-                    <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="1" CornerRadius="8" SnapsToDevicePixels="True">
+                    <Grid x:Name="Root" SnapsToDevicePixels="True">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1" CornerRadius="8" SnapsToDevicePixels="True" />
+                        <Border x:Name="Hover" Background="White" CornerRadius="7" Opacity="0" IsHitTestVisible="False" />
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#23233A" />
+                            <Setter TargetName="Hover" Property="Opacity" Value="0.09" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource SyncBorderHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{StaticResource SyncAccentBrush}" />
@@ -136,7 +174,7 @@
                             <Setter Property="Foreground" Value="White" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Opacity" Value="0.45" />
+                            <Setter TargetName="Root" Property="Opacity" Value="0.45" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -150,11 +188,14 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type RadioButton}">
-                    <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="8"
-                            BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1"
-                            SnapsToDevicePixels="True">
+                    <Grid x:Name="Root" SnapsToDevicePixels="True">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="8"
+                                BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1"
+                                SnapsToDevicePixels="True" />
+                        <Border x:Name="h" Background="White" CornerRadius="7" Opacity="0"
+                                IsHitTestVisible="False" />
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="b" Property="Background" Value="{StaticResource SyncAccentBrush}" />
@@ -162,10 +203,11 @@
                             <Setter Property="Foreground" Value="White" />
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="h" Property="Opacity" Value="0.10" />
                             <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource SyncBorderHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Opacity" Value="0.45" />
+                            <Setter TargetName="Root" Property="Opacity" Value="0.45" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -187,25 +229,30 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type Button}">
-                    <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="10"
-                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
-                            SnapsToDevicePixels="True">
+                    <Grid x:Name="Root" SnapsToDevicePixels="True">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="10"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                                SnapsToDevicePixels="True" />
+                        <!-- A translucent white sheet keeps coloured buttons (START, STOP,
+                             CONNECT) recognisable on hover instead of replacing their accent. -->
+                        <Border x:Name="Hover" Background="White" CornerRadius="9" Opacity="0"
+                                IsHitTestVisible="False" />
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
                                           Margin="{TemplateBinding Padding}" />
-                    </Border>
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="b" Property="Background" Value="#2A2A40" />
+                            <Setter TargetName="Hover" Property="Opacity" Value="0.12" />
                             <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource SyncBorderHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="b" Property="Opacity" Value="0.85" />
+                            <Setter TargetName="Hover" Property="Opacity" Value="0.2" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource SyncAccentBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Opacity" Value="0.4" />
+                            <Setter TargetName="Root" Property="Opacity" Value="0.4" />
                             <Setter Property="Cursor" Value="Arrow" />
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -338,6 +385,10 @@
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource SyncBorderHoverBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource SyncTextBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource SyncAccentBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.45" />
@@ -403,9 +454,13 @@
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type ScrollBar}">
                     <Grid Background="Transparent">
-                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True"
+                               Orientation="{TemplateBinding Orientation}">
                             <Track.Thumb>
-                                <Thumb>
+                                <!-- MinHeight keeps the grab handle usable in long lists.
+                                     The visual bar stays slim; the margin lives on the
+                                     Border so the whole 10px track is draggable. -->
+                                <Thumb x:Name="Thumb" MinHeight="18">
                                     <Thumb.Template>
                                         <ControlTemplate TargetType="{x:Type Thumb}">
                                             <Border x:Name="Bar" Background="#3A3A50" CornerRadius="5" Margin="2,0" />
@@ -419,7 +474,7 @@
                                 </Thumb>
                             </Track.Thumb>
                             <Track.IncreaseRepeatButton>
-                                <RepeatButton Command="ScrollBar.PageDownCommand" Focusable="False">
+                                <RepeatButton x:Name="IncreaseButton" Command="ScrollBar.PageDownCommand" Focusable="False">
                                     <RepeatButton.Template>
                                         <ControlTemplate TargetType="{x:Type RepeatButton}">
                                             <Border Background="Transparent" />
@@ -428,7 +483,7 @@
                                 </RepeatButton>
                             </Track.IncreaseRepeatButton>
                             <Track.DecreaseRepeatButton>
-                                <RepeatButton Command="ScrollBar.PageUpCommand" Focusable="False">
+                                <RepeatButton x:Name="DecreaseButton" Command="ScrollBar.PageUpCommand" Focusable="False">
                                     <RepeatButton.Template>
                                         <ControlTemplate TargetType="{x:Type RepeatButton}">
                                             <Border Background="Transparent" />
@@ -438,9 +493,25 @@
                             </Track.DecreaseRepeatButton>
                         </Track>
                     </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Orientation" Value="Horizontal">
+                            <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False" />
+                            <Setter TargetName="Thumb" Property="MinWidth" Value="18" />
+                            <Setter TargetName="Thumb" Property="MinHeight" Value="0" />
+                            <Setter TargetName="IncreaseButton" Property="Command" Value="ScrollBar.PageRightCommand" />
+                            <Setter TargetName="DecreaseButton" Property="Command" Value="ScrollBar.PageLeftCommand" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+        <Style.Triggers>
+            <Trigger Property="Orientation" Value="Horizontal">
+                <Setter Property="Width" Value="Auto" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="Height" Value="10" />
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <Style TargetType="{x:Type TabControl}" x:Key="SyncTabControl">
@@ -480,13 +551,13 @@
                         <ContentPresenter x:Name="H" ContentSource="Header" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="#12121C" />
+                            <Setter Property="Foreground" Value="{StaticResource SyncTextBrush}" />
+                        </Trigger>
                         <Trigger Property="IsSelected" Value="True">
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource SyncAccentBrush}" />
                             <Setter Property="Foreground" Value="White" />
-                        </Trigger>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#12121C" />
-                            <Setter Property="Foreground" Value="{StaticResource SyncMutedBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

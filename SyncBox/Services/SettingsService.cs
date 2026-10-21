@@ -19,6 +19,10 @@ namespace SyncBox.Services
 
         public bool AutoDetectDevice { get; set; } = true;
 
+        public bool AutoDetectWifi { get; set; } = true;
+
+        public string WifiPassword { get; set; } = string.Empty;
+
         public int HorizontalLedCount { get; set; } = 19;
 
         public int VerticalLedCount { get; set; } = 10;
@@ -60,6 +64,12 @@ namespace SyncBox.Services
             TargetFps = Math.Clamp(TargetFps, 0, 240);
             ComPort = (ComPort ?? string.Empty).Trim();
             IpAddress = (IpAddress ?? string.Empty).Trim();
+            WifiPassword = WifiPassword ?? string.Empty;
+            if (WifiPassword.Length > 128)
+            {
+                WifiPassword = WifiPassword[..128];
+            }
+
             return this;
         }
     }

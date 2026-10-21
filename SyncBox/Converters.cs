@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
@@ -53,8 +53,16 @@ namespace SyncBox
 
     public sealed class StringToVisibilityConverter : IValueConverter
     {
-        public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-            string.IsNullOrWhiteSpace(value as string) ? Visibility.Collapsed : Visibility.Visible;
+        public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        {
+            bool hasText = !string.IsNullOrWhiteSpace(value as string);
+            if (string.Equals(parameter as string, "Inverse", StringComparison.OrdinalIgnoreCase))
+            {
+                hasText = !hasText;
+            }
+
+            return hasText ? Visibility.Visible : Visibility.Collapsed;
+        }
 
         public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
             Binding.DoNothing;

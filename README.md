@@ -49,6 +49,41 @@ the manually selected port with a warning instead of refusing to connect, so fir
 that does not implement the handshake still works. *Detect* runs the same scan without
 connecting.
 
+## Wi-Fi discovery
+
+The Wi-Fi side mirrors the serial handshake: instead of probing ports, SyncBox asks
+Windows for the wireless networks in range and looks for one whose name is built from
+the application name.
+
+With *Join the SyncBox Wi-Fi automatically on connect* enabled (the default), connecting
+over Wi-Fi:
+
+1. scans every wireless interface (`WlanScan` + `WlanGetAvailableNetworkList`) and keeps
+   the SSIDs that match `SyncBox` after lower-casing and dropping separators, so
+   `SyncBox`, `sync box`, `SyncBox-2G` and `MySyncBox` all match while `BoxSync` does not;
+2. orders the matches: exact name first, then names starting with `SyncBox`, then names
+   containing it; ties go to the network Windows is already on and then to signal strength;
+3. joins the winner through `WlanConnect`. If Windows already has a stored profile it is
+   reused (no elevation needed); otherwise a temporary profile is built in memory, so an
+   unprivileged app can still join an open access point;
+4. waits up to 12 s for the association, then reads the IPv4 gateway of the wireless
+   adapter and uses it as the controller address. On an ESP-style access point that is
+   `192.168.4.1`, so the *Controller IP* field follows the network automatically.
+
+The Wi-Fi panel lists only SyncBox networks, *Scan* refreshes that list without
+connecting, and switching the interface to *WI-FI / UDP* triggers a scan so the list is
+populated before the first connect.
+
+Secured access points need their password once. Type it in *Wi-Fi password* (8-63
+characters, stored in `settings.json` next to the other settings) or join the network
+once from the Windows Wi-Fi menu and let the stored profile be reused. WPA-PSK,
+WPA2-PSK and WPA3-SAE are supported; WEP and 802.1X networks are reported instead of
+guessed at.
+
+If no controller network is in range, or the join fails, SyncBox falls back to the
+configured *Controller IP* with a warning and keeps streaming, exactly like the serial
+fallback.
+
 ## Wire protocol
 
 Every frame is a fixed-overhead envelope followed by RGB triplets, in LED order.
@@ -98,4 +133,5 @@ capture instead of reading out of bounds.
 
 Stored as JSON at `%LOCALAPPDATA%\SyncBox\settings.json` and saved on connect,
 disconnect and window close. Values are clamped on load, so a hand-edited or corrupt
-file cannot produce an invalid frame size.
+file cannot produce an invalid frame size. The optional Wi-Fi password is part of that
+file and is stored in plain text, so treat the file as sensitive.
