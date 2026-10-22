@@ -34,6 +34,15 @@ namespace SyncBox.Tests
         }
 
         [Fact]
+        public void ASubnetKnowsItsBroadcastAddressForTheDiscoveryBurst()
+        {
+            var subnet = new LocalSubnet(IPAddress.Parse("192.168.1.10"), IPAddress.Parse("255.255.255.0"));
+
+            Assert.Equal("192.168.1.255", subnet.Broadcast.ToString());
+            Assert.True(subnet.Contains(subnet.Broadcast));
+        }
+
+        [Fact]
         public void ASubnetOnlyContainsItsOwnAddresses()
         {
             var subnet = new LocalSubnet(IPAddress.Parse("192.168.1.10"), IPAddress.Parse("255.255.255.0"));

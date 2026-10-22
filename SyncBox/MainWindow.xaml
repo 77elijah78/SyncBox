@@ -98,46 +98,23 @@
                                 </UniformGrid>
 
                                 <StackPanel Visibility="{Binding UseWifi, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
-                                    <TextBlock Text="DETECTED CONTROLLER" Style="{StaticResource FieldLabel}" />
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <Border Background="{StaticResource SyncFieldBrush}" CornerRadius="8"
-                                                BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1"
-                                                MinHeight="34" Padding="10,0">
-                                            <TextBlock Text="{Binding DetectedPortText}" VerticalAlignment="Center"
-                                                       TextTrimming="CharacterEllipsis"
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Ellipse Width="9" Height="9" VerticalAlignment="Center"
+                                                     Fill="{Binding IsControllerDetected, Converter={StaticResource ConnectionColor}}" />
+                                            <TextBlock Text="{Binding ControllerStatusText}" Margin="8,0,0,0"
+                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                        Foreground="{StaticResource SyncMutedBrush}" />
-                                        </Border>
-                                        <Button x:Name="DetectDeviceButton" Grid.Column="1" Content="Detect" Height="34" MinHeight="34"
-                                                MinWidth="96" Margin="8,0,0,0"
-                                                Command="{Binding DetectDeviceCommand}"
-                                                ToolTip="Probe the serial ports for a Sync Box controller." />
-                                    </Grid>
-
-                                    <Border Background="{StaticResource SyncFieldBrush}" CornerRadius="8"
-                                            Padding="10,8" Margin="0,10,0,0"
-                                            BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding DeviceVersionText}" FontSize="11"
-                                                       Foreground="{StaticResource SyncMutedBrush}"
-                                                       TextWrapping="Wrap" />
-                                            <TextBlock Text="The port is found by the AF 05 D1 handshake, never picked by hand. Connect runs the same detection first."
-                                                       FontSize="10" Foreground="{StaticResource SyncFaintBrush}"
-                                                       TextWrapping="Wrap" Margin="0,4,0,0" />
                                         </StackPanel>
-                                    </Border>
-
-                                    <TextBlock Text="BAUD RATE" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
-                                    <Border Background="{StaticResource SyncFieldBrush}" CornerRadius="8"
-                                            BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1"
-                                            MinHeight="34" Padding="10,0"
-                                            ToolTip="Fixed so the link can never be opened at the wrong rate.">
-                                        <TextBlock Text="{Binding BaudRateText}" VerticalAlignment="Center"
-                                                   Foreground="{StaticResource SyncMutedBrush}" />
-                                    </Border>
+                                        <Button x:Name="DetectDeviceButton" Grid.Column="1" Content="Detect"
+                                                Height="34" MinHeight="34" MinWidth="96"
+                                                Command="{Binding DetectDeviceCommand}"
+                                                ToolTip="Search the USB ports for the controller." />
+                                    </Grid>
                                 </StackPanel>
 
                                 <StackPanel Visibility="{Binding UseWifi, Converter={StaticResource BoolToVisibility}}">
@@ -163,21 +140,12 @@
                                                 ToolTip="List the devices connected to your router and look for the SyncBox controller." />
                                     </Grid>
 
-                                    <CheckBox Content="Find the controller on my network automatically on connect"
+                                    <CheckBox Content="Find the controller automatically"
                                               IsChecked="{Binding AutoFindOnNetwork}" Margin="0,14,0,0" />
 
-                                    <Border Background="{StaticResource SyncFieldBrush}" CornerRadius="8"
-                                            Padding="10,8" Margin="0,10,0,0"
-                                            BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding NetworkStatusText}" FontSize="11"
-                                                       Foreground="{StaticResource SyncMutedBrush}"
-                                                       TextWrapping="Wrap" />
-                                            <TextBlock Text="Scans the router your PC is connected to, not the Wi-Fi networks in range. Choosing an entry fills the controller IP."
-                                                       FontSize="10" Foreground="{StaticResource SyncFaintBrush}"
-                                                       TextWrapping="Wrap" Margin="0,4,0,0" />
-                                        </StackPanel>
-                                    </Border>
+                                    <TextBlock Text="{Binding NetworkStatusText}" FontSize="11"
+                                               Foreground="{StaticResource SyncFaintBrush}"
+                                               TextWrapping="Wrap" Margin="0,10,0,0" />
 
                                     <UniformGrid Columns="2" Margin="0,12,0,0">
                                         <StackPanel Margin="0,0,5,0">
@@ -189,10 +157,6 @@
                                             <TextBox Text="{Binding Port, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True, NotifyOnValidationError=True}" />
                                         </StackPanel>
                                     </UniformGrid>
-
-                                    <TextBlock Text="UDP is connectionless: SyncBox cannot confirm the controller is listening."
-                                               FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
-                                               TextWrapping="Wrap" Margin="0,10,0,0" />
 
                                     <Border Height="1" Background="{StaticResource SyncBorderBrush}" Margin="0,16,0,0" />
 
@@ -218,20 +182,11 @@
                                                 ToolTip="List the Wi-Fi networks in range and mark the SyncBox ones." />
                                     </Grid>
 
-                                    <Border Background="{StaticResource SyncFieldBrush}" CornerRadius="8"
-                                            Padding="10,8" Margin="0,10,0,0"
-                                            BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding WifiStatusText}" FontSize="11"
-                                                       Foreground="{StaticResource SyncMutedBrush}"
-                                                       TextWrapping="Wrap" />
-                                            <TextBlock Text="Needed only when the controller creates its own access point. Its gateway becomes the controller IP."
-                                                       FontSize="10" Foreground="{StaticResource SyncFaintBrush}"
-                                                       TextWrapping="Wrap" Margin="0,4,0,0" />
-                                        </StackPanel>
-                                    </Border>
+                                    <TextBlock Text="{Binding WifiStatusText}" FontSize="11"
+                                               Foreground="{StaticResource SyncFaintBrush}"
+                                               TextWrapping="Wrap" Margin="0,10,0,0" />
 
-                                    <CheckBox Content="Join the selected Wi-Fi network when the controller is not on my router"
+                                    <CheckBox Content="Join the selected Wi-Fi network if needed"
                                               IsChecked="{Binding AutoDetectWifi}" Margin="0,12,0,0" />
 
                                     <TextBlock Text="WIFI PASSWORD (OPTIONAL)" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
@@ -284,7 +239,7 @@
                                             Command="{Binding RefreshWindowsCommand}" />
                                 </Grid>
 
-                                <CheckBox Content="Cinematic mode (ignore letterbox and pillarbox bars)"
+                                <CheckBox Content="Cinematic mode"
                                           IsChecked="{Binding IsCinematicMode}" Margin="0,14,0,0" />
 
                                 <TextBlock Text="BAR DETECTION THRESHOLD" Style="{StaticResource FieldLabel}" Margin="0,14,0,0" />
@@ -319,7 +274,7 @@
 
                                 <CheckBox Content="Wait for a device ACK after every frame"
                                           IsChecked="{Binding RequireAck}" Margin="0,8,0,0" />
-                                <TextBlock Text="The controller may answer with the single letter O (ASCII 0x4F) or a binary AA 55 02 frame. Each ACK is waited on for at most 12 ms; after 8 misses the option turns itself off."
+                                <TextBlock Text="Answer with O or AA 55 02. Waits 12 ms per frame."
                                            FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
                                            TextWrapping="Wrap" Margin="0,8,0,0" />
                             </StackPanel>
@@ -344,10 +299,6 @@
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <TextBlock Text="COLOUR PIPELINE" Style="{StaticResource ProLabel}" />
-                                <TextBlock Text="Colours are decoded from sRGB to linear, adjusted, then re-encoded. Gamma therefore behaves like a display gamma, not a second sRGB curve."
-                                           FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
-                                           TextWrapping="Wrap" Margin="0,0,0,14" />
-
                                 <TextBlock Text="BRIGHTNESS" Style="{StaticResource FieldLabel}" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -428,9 +379,7 @@
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <TextBlock Text="SETTINGS" Style="{StaticResource ProLabel}" />
-                                <TextBlock Text="{Binding SettingsPath}" FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
-                                           TextWrapping="Wrap" Margin="0,0,0,12" />
-                                <Button Content="Save settings now" Command="{Binding PersistSettingsCommand}" />
+                                <Button Content="Save settings" Command="{Binding PersistSettingsCommand}" />
                             </StackPanel>
                         </Border>
                     </StackPanel>

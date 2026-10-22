@@ -35,51 +35,45 @@ the controller to answer with a line starting with **`Sync Box`**, for example
 `Sync Box V1.0`. Anything else on the port (bootloader banners, other devices) is
 ignored.
 
-There is no manual port selection and no baud rate selector: detection always runs at
-the controller's fixed **1,000,000 baud**, and connecting over USB runs the same scan
-before it opens the link.
+There is no port picker and no baud rate field in the interface: detection always runs
+at the controller's fixed **1,000,000 baud**, and a single *Detect* line reports whether
+a controller was found. Connecting runs the same scan before it opens the link.
 
 1. probes the port used last time first, then every other port Windows reports;
 2. sends `AF 05 D1` at 1,000,000 baud and waits up to 600 ms per port;
-3. switches the detected port to the winner, reports the firmware string in the
-   interface card, and remembers the port.
+3. remembers the winning port and answers the highest-priority one found.
 
 The whole scan is capped at 10 seconds. If no controller answers, connecting fails with
 a message instead of guessing a port, so a wrong port can never be opened silently.
-*Detect* runs the same scan without connecting.
 
 ## Network discovery (devices on your router)
 
-This is the default way to find the controller over Wi-Fi. It looks at the network the
-PC is already connected to — the router's client list — instead of the Wi-Fi networks in
-range.
+This is the default way to find the controller over Wi-Fi. It reads the router's
+MAC/ARP table instead of pinging every address, so a scan takes about a second instead
+of sweeping 254 hosts with ping timeouts.
 
-With *Find the controller on my network automatically on connect* enabled (the default),
-connecting over UDP:
+With *Find the controller automatically* enabled (the default), connecting over UDP:
 
-1. collects every active IPv4 subnet of the PC (Ethernet and Wi-Fi adapters, skipping
-   loopback, APIPA, tunnels and virtual adapters) and pings every address, capped at 1024
-   hosts per subnet;
-2. adds devices that never answer ICMP but still sit in the ARP cache;
-3. asks every live address for its name (reverse DNS) and reads its MAC from the ARP
-   table, so Espressif (ESP32/ESP8266) hardware can be recognised by its OUI;
-4. sends the same `AF 05 D1` handshake used over serial to the configured UDP port and
-   accepts any reply starting with `Sync Box`, which is the only definitive signal;
-5. scores each device: handshake **100**, host name `SyncBox`/`Sync-Box-V1`-style
-   **85-95**, Espressif MAC **55**, open LED port **60**, plain ping **10**.
+1. reads the ARP table, which already lists every device this PC has talked to;
+2. sends one `AF 05 D1` datagram to every address of the local IPv4 subnets from a single
+   socket, plus a broadcast copy. Sending is fire-and-forget, and because the operating
+   system must resolve a MAC before it can send, the router's answer fills the ARP table;
+3. collects any handshake replies for 700 ms and re-reads the ARP table for up to 1.2 s;
+4. resolves host names for the devices that showed up and scores them: handshake **100**,
+   host name `SyncBox`/`Sync-Box-V1` style **85-95**, Espressif MAC **55**, open LED port
+   **60**, plain ARP entry **10**.
 
-Devices at or above **80** are picked automatically — so the same name-matching rules as
-the serial path apply to the DHCP host name, and `Sync-Box-V1` matches because it starts
-with `SyncBox` once separators and case are ignored. A device that only answers ping is
-never assumed to be the controller; the *Devices on your network* list shows every
-device found (IP, name, vendor) so it can be chosen manually, and choosing one fills the
-*Controller IP* field. *Scan* runs the sweep without connecting.
+Devices at or above **80** are picked automatically — the same name-matching rules as the
+serial path, applied to the DHCP host name, where `Sync-Box-V1` matches because it starts
+with `SyncBox` once separators and case are ignored. A device that is merely present in
+the ARP table is never assumed to be the controller; the list shows every device (IP,
+name, vendor) so one can be chosen manually, and choosing one fills *Controller IP*.
+*Scan* runs the same lookup without connecting.
 
-If the sweep finds nothing, SyncBox falls back to the configured *Controller IP* with a
-warning. Two things are worth checking when the controller is missing from the list:
-the PC must be on the same router/subnet, and the Windows network profile should be
-*Private* so inbound ICMP is not blocked by the firewall. Firmware that answers the
-handshake on its UDP port is identified even when its name is unknown.
+Because discovery happens at the MAC/ARP level, a controller whose firmware drops ICMP
+echo requests is still found — that was the case when pinging never saw it. If the list
+is empty, check that the PC is on the same router/subnet and that the network profile is
+*Private* in Windows.
 
 ## Wi-Fi access point discovery (fallback)
 

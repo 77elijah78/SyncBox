@@ -112,7 +112,11 @@ namespace SyncBox.ViewModels
         private bool isDetecting;
 
         [ObservableProperty]
-        private string deviceVersionText = "No controller detected yet";
+        [NotifyPropertyChangedFor(nameof(ControllerStatusText))]
+        private bool isControllerDetected;
+
+        [ObservableProperty]
+        private string deviceVersionText = string.Empty;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(TotalLedCount))]
@@ -237,9 +241,11 @@ namespace SyncBox.ViewModels
 
         public string TargetFpsText => TargetFps <= 0 ? "Unlimited" : TargetFps + " FPS";
 
-        public string BaudRateText => LedLimits.FixedBaudRate.ToString("N0") + " baud (fixed)";
-
-        public string DetectedPortText => string.IsNullOrWhiteSpace(ComPort) ? "Not detected yet" : ComPort;
+        public string ControllerStatusText => !IsControllerDetected
+            ? "No controller found"
+            : string.IsNullOrWhiteSpace(ComPort)
+                ? "Controller detected"
+                : $"Sync Box on {ComPort}";
 
         public bool CanStart() => IsConnected && !IsStreaming && !IsBusy;
 
@@ -353,7 +359,7 @@ namespace SyncBox.ViewModels
 
         partial void OnIsCinematicModeChanged(bool value) => _render.Cinematic = value;
 
-        partial void OnComPortChanged(string value) => OnPropertyChanged(nameof(DetectedPortText));
+        partial void OnComPortChanged(string value) => OnPropertyChanged(nameof(ControllerStatusText));
 
         partial void OnSelectedWindowChanged(WindowInfo? value) => _sampler.RequestReset();
 
@@ -511,6 +517,7 @@ namespace SyncBox.ViewModels
                 CancelLoop();
                 DisposeTransport();
                 IsConnected = false;
+                IsControllerDetected = false;
                 ConnectionSummary = "Disconnected";
                 StatusText = "Disconnected";
                 SaveSettings();
@@ -773,7 +780,7 @@ namespace SyncBox.ViewModels
 
             SyncBoxDevice device = outcome.Device!;
             ComPort = device.PortName;
-            DeviceVersionText = $"{device.FirmwareVersion} on {device.PortName} @ {device.BaudRate}";
+            IsControllerDetected = true;
 
             ISyncTransport transport;
             try
@@ -814,14 +821,14 @@ namespace SyncBox.ViewModels
             DetectionOutcome outcome = await DetectControllerAsync();
             if (!outcome.Found)
             {
+                IsControllerDetected = false;
                 Message(outcome.Summary, isError: true);
                 StatusText = "No controller";
-                DeviceVersionText = "No Sync Box controller answered";
                 return;
             }
 
             ComPort = outcome.Device!.PortName;
-            DeviceVersionText = $"{outcome.Device.FirmwareVersion} on {outcome.Device.PortName} @ {outcome.Device.BaudRate}";
+            IsControllerDetected = true;
             Message(outcome.Summary);
         }
 

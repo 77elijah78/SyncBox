@@ -138,8 +138,9 @@ namespace SyncBox.Tests
                         Check(viewModel.Gamma == 0.2, "Gamma was not clamped.", failures);
                         Check(viewModel.AverageSize == 5, "AverageSize was not clamped.", failures);
                         Check(viewModel.TargetFps == 240, "TargetFps was not clamped.", failures);
-                        Check(viewModel.BaudRateText.Contains("1,000,000", StringComparison.Ordinal), "The baud rate is not pinned to 1,000,000.", failures);
-                        Check(viewModel.DetectedPortText.Length > 0, "The detected port line has no text.", failures);
+                        Check(Services.LedLimits.FixedBaudRate == 1000000, "The baud rate is not pinned to 1,000,000.", failures);
+                        Check(viewModel.ControllerStatusText.Length > 0, "The controller status line has no text.", failures);
+                        Check(!viewModel.IsControllerDetected, "A controller should not be reported before detection.", failures);
                         Check(viewModel.LedPreviewItems.Count == viewModel.TotalLedCount, "Preview was not rebuilt for the new layout.", failures);
                         Check(viewModel.FrameByteSize == Services.LedProtocol.FrameSize(viewModel.TotalLedCount), "Frame byte size does not match the protocol.", failures);
                         Check(viewModel.SettingsPath.Length > 0, "No settings path was resolved.", failures);

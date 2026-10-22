@@ -103,11 +103,11 @@ namespace SyncBox.Services
         /// <summary>Score a device needs before Connect picks it without the user choosing.</summary>
         public const int ControllerScoreThreshold = 80;
 
-        private const int PingTimeoutMs = 700;
-        private const int ResolveTimeoutMs = 600;
-        private const int HandshakeTimeoutMs = 400;
-        private const int PingConcurrency = 64;
-        private const int ProbeConcurrency = 8;
+        private const int ArpSettleMs = 1200;
+        private const int ReplyWindowMs = 700;
+        private const int ResolveTimeoutMs = 350;
+        private const int TcpProbeTimeoutMs = 350;
+        private const int ProbeConcurrency = 16;
 
         private static readonly string[] VirtualAdapterMarkers =
         {
@@ -129,7 +129,11 @@ namespace SyncBox.Services
 
         public static bool IsSupported => OperatingSystem.IsWindows();
 
-        /// <summary>Sweeps every local IPv4 subnet and describes what answered.</summary>
+        /// <summary>
+        /// Finds the controller from the router's MAC/ARP table instead of pinging every
+        /// address. Reading the table is instant, and a short burst of handshake packets
+        /// makes the router fill it in for hosts the PC has not talked to yet.
+        /// </summary>
         public static LanScanResult Scan(int port, IProgress<string>? progress = null, CancellationToken token = default)
         {
             if (!IsSupported)
@@ -150,31 +154,43 @@ namespace SyncBox.Services
                 }
 
                 var subnetsText = subnets.Select(subnet => subnet.ToString()).ToList();
-                progress?.Report($"Scanning {string.Join(", ", subnetsText)}...");
 
-                var alive = new HashSet<IPAddress>();
-                foreach (LocalSubnet subnet in subnets)
+                // 1. Whatever the ARP table already knows costs nothing at all.
+                IReadOnlyDictionary<IPAddress, string> arp = ReadArpTable();
+                progress?.Report($"Reading the MAC table of {string.Join(", ", subnetsText)}...");
+
+                // 2. One packet per address makes the router reveal the rest. Nothing is
+                //    awaited, so this takes milliseconds instead of a ping timeout per host.
+                Dictionary<IPAddress, string> replies = PrimeArpCache(subnets, port, token);
+
+                // 3. Give the ARP table a moment to fill in, then read it again.
+                DateTime deadline = DateTime.UtcNow.AddMilliseconds(ArpSettleMs);
+                while (DateTime.UtcNow < deadline && !token.IsCancellationRequested)
                 {
-                    token.ThrowIfCancellationRequested();
-                    IReadOnlyList<IPAddress> hosts = EnumerateHosts(subnet.Address, subnet.Mask);
-                    progress?.Report($"Pinging {hosts.Count} address(es) on {subnet}...");
-                    IReadOnlyCollection<IPAddress> answered = PingSweep(hosts, token);
-                    foreach (IPAddress address in answered)
+                    arp = ReadArpTable();
+                    bool foundEveryReply = replies.Keys.All(address => arp.ContainsKey(address));
+                    if (arp.Count > 0 && foundEveryReply)
                     {
-                        alive.Add(address);
+                        break;
                     }
+
+                    token.WaitHandle.WaitOne(80);
                 }
 
-                IReadOnlyDictionary<IPAddress, string> arp = ReadArpTable();
+                arp = ReadArpTable();
 
-                // Devices that never answer ping but still sit in the ARP cache were
-                // talking to this PC recently, so they are worth identifying too.
+                var alive = new HashSet<IPAddress>();
                 foreach (KeyValuePair<IPAddress, string> entry in arp)
                 {
                     if (subnets.Any(subnet => subnet.Contains(entry.Key)))
                     {
                         alive.Add(entry.Key);
                     }
+                }
+
+                foreach (IPAddress address in replies.Keys)
+                {
+                    alive.Add(address);
                 }
 
                 if (alive.Count == 0)
@@ -187,7 +203,7 @@ namespace SyncBox.Services
                 }
 
                 progress?.Report($"Identifying {alive.Count} device(s)...");
-                IReadOnlyList<LanDevice> devices = Identify(alive, arp, port, token);
+                IReadOnlyList<LanDevice> devices = Identify(alive, arp, replies, port, token);
 
                 string summary = DescribeScan(devices, subnetsText);
                 return new LanScanResult(true, summary, devices, subnetsText);
@@ -200,6 +216,89 @@ namespace SyncBox.Services
             {
                 return new LanScanResult(false, "The network scan failed: " + ex.Message, Array.Empty<LanDevice>(), Array.Empty<string>());
             }
+        }
+
+        /// <summary>
+        /// Sends the handshake to every address of the local subnets from one socket and
+        /// collects the answers. Sending is fire-and-forget and also forces the operating
+        /// system to resolve each MAC, which is what fills the ARP table.
+        /// </summary>
+        private static Dictionary<IPAddress, string> PrimeArpCache(
+            IReadOnlyList<LocalSubnet> subnets,
+            int port,
+            CancellationToken token)
+        {
+            var replies = new Dictionary<IPAddress, string>();
+            byte[] preamble = DeviceDiscovery.Preamble.ToArray();
+
+            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            socket.EnableBroadcast = true;
+            try
+            {
+                socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+            }
+            catch (SocketException)
+            {
+                return replies;
+            }
+
+            foreach (LocalSubnet subnet in subnets)
+            {
+                token.ThrowIfCancellationRequested();
+                foreach (IPAddress host in EnumerateHosts(subnet.Address, subnet.Mask))
+                {
+                    try
+                    {
+                        socket.SendTo(preamble, new IPEndPoint(host, port));
+                    }
+                    catch (SocketException)
+                    {
+                    }
+                }
+
+                if (port > 0)
+                {
+                    try
+                    {
+                        socket.SendTo(preamble, new IPEndPoint(subnet.Broadcast, port));
+                    }
+                    catch (SocketException)
+                    {
+                    }
+                }
+            }
+
+            // Collect whatever came back without blocking the scan on silent devices.
+            DateTime deadline = DateTime.UtcNow.AddMilliseconds(ReplyWindowMs);
+            var buffer = new byte[256];
+            while (DateTime.UtcNow < deadline && !token.IsCancellationRequested)
+            {
+                if (!socket.Poll(20_000, SelectMode.SelectRead))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    EndPoint remote = new IPEndPoint(IPAddress.Any, 0);
+                    int read = socket.ReceiveFrom(buffer, ref remote);
+                    if (read > 0 && remote is IPEndPoint endpoint)
+                    {
+                        // Only keep a reply that really is the firmware banner; anything
+                        // else still proves the host exists but is not worth displaying.
+                        string text = Encoding.ASCII.GetString(buffer, 0, read);
+                        string? version = DeviceDiscovery.ExtractFirmwareVersion(text);
+                        replies[endpoint.Address] = version is null ? string.Empty : text.Trim();
+                    }
+                }
+                catch (SocketException)
+                {
+                    break;
+                }
+            }
+
+            token.ThrowIfCancellationRequested();
+            return replies;
         }
 
         public static IReadOnlyList<LocalSubnet> FindLocalSubnets()
@@ -383,6 +482,7 @@ namespace SyncBox.Services
         private static IReadOnlyList<LanDevice> Identify(
             IReadOnlyCollection<IPAddress> addresses,
             IReadOnlyDictionary<IPAddress, string> arp,
+            IReadOnlyDictionary<IPAddress, string> replies,
             int port,
             CancellationToken token)
         {
@@ -399,19 +499,16 @@ namespace SyncBox.Services
                     try
                     {
                         string? hostName = await ResolveHostNameAsync(address, token).ConfigureAwait(false);
-                        string? handshake = null;
-                        bool portOpen = false;
-
-                        if (port > 0)
-                        {
-                            handshake = await ProbeHandshakeAsync(address, port, token).ConfigureAwait(false);
-                            if (handshake is null)
-                            {
-                                portOpen = await ProbeTcpAsync(address, port, token).ConfigureAwait(false);
-                            }
-                        }
-
+                        replies.TryGetValue(address, out string? handshake);
                         arp.TryGetValue(address, out string? mac);
+
+                        // The handshake was already aimed at every address, so a silent
+                        // host is silent; only Espressif hardware is worth a TCP probe.
+                        bool portOpen = handshake is null &&
+                                        port > 0 &&
+                                        IsEspressifOui(mac) &&
+                                        await ProbeTcpAsync(address, port, token).ConfigureAwait(false);
+
                         var device = new LanDevice(
                             address,
                             hostName,
@@ -457,66 +554,6 @@ namespace SyncBox.Services
                 .ToList();
         }
 
-        private static IReadOnlyCollection<IPAddress> PingSweep(
-            IReadOnlyList<IPAddress> hosts,
-            CancellationToken token)
-        {
-            var answered = new List<IPAddress>();
-            using var throttle = new SemaphoreSlim(PingConcurrency);
-            var tasks = new List<Task>();
-
-            foreach (IPAddress host in hosts)
-            {
-                if (token.IsCancellationRequested)
-                {
-                    break;
-                }
-
-                tasks.Add(Task.Run(async () =>
-                {
-                    await throttle.WaitAsync(token).ConfigureAwait(false);
-                    try
-                    {
-                        using var ping = new Ping();
-                        PingReply reply = await ping
-                            .SendPingAsync(host, PingTimeoutMs)
-                            .WaitAsync(token)
-                            .ConfigureAwait(false);
-                        if (reply.Status == IPStatus.Success)
-                        {
-                            lock (answered)
-                            {
-                                answered.Add(host);
-                            }
-                        }
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                    }
-                    finally
-                    {
-                        throttle.Release();
-                    }
-                }, token));
-            }
-
-            try
-            {
-                Task.WaitAll(tasks.ToArray(), token);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (AggregateException)
-            {
-            }
-
-            lock (answered)
-            {
-                return answered.ToList();
-            }
-        }
-
         private static async Task<string?> ResolveHostNameAsync(IPAddress address, CancellationToken token)
         {
             try
@@ -542,32 +579,6 @@ namespace SyncBox.Services
             }
         }
 
-        private static async Task<string?> ProbeHandshakeAsync(IPAddress address, int port, CancellationToken token)
-        {
-            try
-            {
-                using var client = new UdpClient();
-                client.Connect(address, port);
-                byte[] preamble = DeviceDiscovery.Preamble.ToArray();
-                client.Send(preamble, preamble.Length);
-
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-                timeout.CancelAfter(HandshakeTimeoutMs);
-                UdpReceiveResult result = await client.ReceiveAsync(timeout.Token).ConfigureAwait(false);
-                if (result.Buffer.Length == 0)
-                {
-                    return null;
-                }
-
-                string text = Encoding.ASCII.GetString(result.Buffer);
-                return DeviceDiscovery.ExtractFirmwareVersion(text) is not null ? text : null;
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
-            {
-                return null;
-            }
-        }
-
         private static async Task<bool> ProbeTcpAsync(IPAddress address, int port, CancellationToken token)
         {
             using var client = new TcpClient();
@@ -577,7 +588,7 @@ namespace SyncBox.Services
                 // Task, so it has to be converted before it can race the timeout.
                 Task connect = client.ConnectAsync(address, port, token).AsTask();
                 Task finished = await Task
-                    .WhenAny(connect, Task.Delay(HandshakeTimeoutMs, token))
+                    .WhenAny(connect, Task.Delay(TcpProbeTimeoutMs, token))
                     .ConfigureAwait(false);
 
                 if (finished != connect)
@@ -749,6 +760,7 @@ namespace SyncBox.Services
             Mask = mask;
             PrefixLength = CountPrefixBits(mask);
             Network = AddressNetwork(address, mask);
+            Broadcast = AddressBroadcast(Network, mask);
         }
 
         public IPAddress Address { get; }
@@ -758,6 +770,8 @@ namespace SyncBox.Services
         public int PrefixLength { get; }
 
         public IPAddress Network { get; }
+
+        public IPAddress Broadcast { get; }
 
         public bool Contains(IPAddress candidate)
         {
@@ -801,6 +815,19 @@ namespace SyncBox.Services
             }
 
             return bits;
+        }
+
+        private static IPAddress AddressBroadcast(IPAddress network, IPAddress mask)
+        {
+            byte[] networkBytes = network.GetAddressBytes();
+            byte[] maskBytes = mask.GetAddressBytes();
+            var broadcast = new byte[networkBytes.Length];
+            for (int index = 0; index < networkBytes.Length; index++)
+            {
+                broadcast[index] = (byte)(networkBytes[index] | ~maskBytes[index]);
+            }
+
+            return new IPAddress(broadcast);
         }
 
         private static IPAddress AddressNetwork(IPAddress address, IPAddress mask)
