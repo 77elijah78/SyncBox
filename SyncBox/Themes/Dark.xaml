@@ -53,15 +53,30 @@
         </Setter>
     </Style>
 
-    <!-- Section header: a short accent bar on the left, no extra markup needed. -->
-    <Style x:Key="ProLabel" TargetType="{x:Type TextBlock}">
+    <!-- Section header: a short accent bar on the left. TextBlock has no BorderBrush or
+         BorderThickness (that is Border), so the bar is drawn by the template of a
+         ContentControl and the text is pushed in by a ContentPresenter. -->
+    <Style x:Key="SectionHeader" TargetType="{x:Type ContentControl}">
+        <Setter Property="FontFamily" Value="{StaticResource SyncFont}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="FontWeight" Value="Bold" />
         <Setter Property="Foreground" Value="{StaticResource SyncMutedBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource SyncAccentBrush}" />
-        <Setter Property="BorderThickness" Value="3,0,0,0" />
-        <Setter Property="Padding" Value="9,0,0,0" />
         <Setter Property="Margin" Value="0,0,0,12" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ContentControl}">
+                    <Border BorderBrush="{StaticResource SyncAccentBrush}" BorderThickness="3,0,0,0"
+                            Padding="9,0,0,0">
+                        <ContentPresenter VerticalAlignment="Center"
+                                          TextElement.FontFamily="{TemplateBinding FontFamily}"
+                                          TextElement.FontSize="{TemplateBinding FontSize}"
+                                          TextElement.FontWeight="{TemplateBinding FontWeight}"
+                                          TextElement.Foreground="{TemplateBinding Foreground}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!-- Circular step marker used by the guide tab. -->
