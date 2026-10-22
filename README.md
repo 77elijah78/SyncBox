@@ -27,7 +27,7 @@ sent clockwise starting at the top-left corner:
 | `H+V .. 2H+V` | bottom | right to left |
 | `2H+V .. 2H+2V` | left | bottom to top |
 
-## Device discovery
+## Device discovery (USB serial)
 
 The controller is identified by a handshake rather than by port name or USB VID/PID.
 SyncBox writes the three-byte preamble **`AF 05 D1`** to a candidate port and waits for
@@ -35,19 +35,18 @@ the controller to answer with a line starting with **`Sync Box`**, for example
 `Sync Box V1.0`. Anything else on the port (bootloader banners, other devices) is
 ignored.
 
-With *Pick the port automatically* enabled (the default), connecting over USB:
+There is no manual port selection and no baud rate selector: detection always runs at
+the controller's fixed **1,000,000 baud**, and connecting over USB runs the same scan
+before it opens the link.
 
 1. probes the port used last time first, then every other port Windows reports;
-2. sends `AF 05 D1` at the selected baud rate and waits up to 600 ms per port;
-3. if nothing answers at that rate, retries the remaining ports at 1000000, 115200 and
-   500000 baud;
-4. stops at the first baud rate that answers, switches the port selector to the winner,
-   reports the firmware string in the interface card, and remembers the port.
+2. sends `AF 05 D1` at 1,000,000 baud and waits up to 600 ms per port;
+3. switches the detected port to the winner, reports the firmware string in the
+   interface card, and remembers the port.
 
-The whole scan is capped at 10 seconds. If no controller answers, SyncBox falls back to
-the manually selected port with a warning instead of refusing to connect, so firmware
-that does not implement the handshake still works. *Detect* runs the same scan without
-connecting.
+The whole scan is capped at 10 seconds. If no controller answers, connecting fails with
+a message instead of guessing a port, so a wrong port can never be opened silently.
+*Detect* runs the same scan without connecting.
 
 ## Network discovery (devices on your router)
 
@@ -82,16 +81,22 @@ the PC must be on the same router/subnet, and the Windows network profile should
 *Private* so inbound ICMP is not blocked by the firewall. Firmware that answers the
 handshake on its UDP port is identified even when its name is unknown.
 
-## Wi-Fi access point discovery (optional)
+## Wi-Fi access point discovery (fallback)
 
-Some controllers create their own access point instead of joining the router. Enable
-*Use the controller's own Wi-Fi access point instead* in the interface card, and SyncBox
-can find and join that network by name:
+Some controllers create their own access point instead of joining the router. The
+*Wi-Fi networks in range* list shows **every** SSID Windows can see, with the names built
+from `SyncBox` sorted to the top, so the names are never hidden. *Scan* refreshes the
+list without connecting, and switching the interface to *WI-FI / UDP* scans at startup.
 
-1. scans every wireless interface (`WlanScan` + `WlanGetAvailableNetworkList`) and keeps
-   the SSIDs that match `SyncBox` after lower-casing and dropping separators, so
-   `SyncBox`, `sync box`, `Sync-Box-V1` and `MySyncBox` all match while `BoxSync` does not;
-2. orders the matches: exact name first, then names starting with `SyncBox`, then names
+Joining is only a fallback: on connect SyncBox looks for the controller on the router
+first, and only when that turns up nothing does it join the selected network (or the
+best SyncBox match) and use its gateway as the controller IP. A network selected by hand
+is joined even when its name has nothing to do with SyncBox.
+
+1. scans every wireless interface (`WlanScan` + `WlanGetAvailableNetworkList`) and matches
+   SSIDs after lower-casing and dropping separators, so `SyncBox`, `sync box`,
+   `Sync-Box-V1` and `MySyncBox` all match while `BoxSync` does not;
+2. orders the list: exact name first, then names starting with `SyncBox`, then names
    containing it; ties go to the network Windows is already on and then to signal strength;
 3. joins the winner through `WlanConnect`. If Windows already has a stored profile it is
    reused (no elevation needed); otherwise a temporary profile is built in memory, so an
@@ -157,5 +162,5 @@ Stored as JSON at `%LOCALAPPDATA%\SyncBox\settings.json` and saved on connect,
 disconnect and window close. Values are clamped on load, so a hand-edited or corrupt
 file cannot produce an invalid frame size. The optional Wi-Fi password is part of that
 file and is stored in plain text, so treat the file as sensitive. Network discovery is
-controlled by `AutoFindOnNetwork`, and the optional access-point path by
-`UseControllerAp` plus `AutoDetectWifi`.
+controlled by `AutoFindOnNetwork`, and the access-point fallback by
+`AutoDetectWifi`. `BaudRate` is always rewritten to 1,000,000 on load and save.

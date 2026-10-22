@@ -130,7 +130,6 @@ namespace SyncBox.Tests
                         viewModel.Gamma = -3.0;
                         viewModel.AverageSize = 999;
                         viewModel.TargetFps = 9999;
-                        viewModel.SelectedBaud = 12345;
 
                         Check(viewModel.HorizontalLedCount == 1, "HorizontalLedCount was not clamped.", failures);
                         Check(viewModel.VerticalLedCount == Services.LedLimits.MaxLedCount, "VerticalLedCount was not clamped.", failures);
@@ -139,7 +138,8 @@ namespace SyncBox.Tests
                         Check(viewModel.Gamma == 0.2, "Gamma was not clamped.", failures);
                         Check(viewModel.AverageSize == 5, "AverageSize was not clamped.", failures);
                         Check(viewModel.TargetFps == 240, "TargetFps was not clamped.", failures);
-                        Check(viewModel.SelectedBaud == 115200, "Baud rate was not clamped.", failures);
+                        Check(viewModel.BaudRateText.Contains("1,000,000", StringComparison.Ordinal), "The baud rate is not pinned to 1,000,000.", failures);
+                        Check(viewModel.DetectedPortText.Length > 0, "The detected port line has no text.", failures);
                         Check(viewModel.LedPreviewItems.Count == viewModel.TotalLedCount, "Preview was not rebuilt for the new layout.", failures);
                         Check(viewModel.FrameByteSize == Services.LedProtocol.FrameSize(viewModel.TotalLedCount), "Frame byte size does not match the protocol.", failures);
                         Check(viewModel.SettingsPath.Length > 0, "No settings path was resolved.", failures);

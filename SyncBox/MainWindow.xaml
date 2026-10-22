@@ -98,33 +98,24 @@
                                 </UniformGrid>
 
                                 <StackPanel Visibility="{Binding UseWifi, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
-                                    <TextBlock Text="PORT" Style="{StaticResource FieldLabel}" />
+                                    <TextBlock Text="DETECTED CONTROLLER" Style="{StaticResource FieldLabel}" />
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <Grid>
-                                            <ComboBox ItemsSource="{Binding AvailablePorts}"
-                                                      SelectedItem="{Binding ComPort}"
-                                                      ToolTip="Serial ports reported by Windows." />
-                                            <TextBlock Text="No port selected" Margin="12,0,0,0" VerticalAlignment="Center"
-                                                       IsHitTestVisible="False" FontSize="11"
-                                                       Foreground="{StaticResource SyncFaintBrush}"
-                                                       Visibility="{Binding ComPort, Converter={StaticResource StringToVisibility}, ConverterParameter=Inverse}" />
-                                        </Grid>
+                                        <Border Background="{StaticResource SyncFieldBrush}" CornerRadius="8"
+                                                BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1"
+                                                MinHeight="34" Padding="10,0">
+                                            <TextBlock Text="{Binding DetectedPortText}" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Foreground="{StaticResource SyncMutedBrush}" />
+                                        </Border>
                                         <Button x:Name="DetectDeviceButton" Grid.Column="1" Content="Detect" Height="34" MinHeight="34"
-                                                MinWidth="84" Margin="8,0,0,0"
+                                                MinWidth="96" Margin="8,0,0,0"
                                                 Command="{Binding DetectDeviceCommand}"
                                                 ToolTip="Probe the serial ports for a Sync Box controller." />
-                                        <Button Grid.Column="2" Content="Refresh" Height="34" MinHeight="34" MinWidth="84"
-                                                Margin="8,0,0,0" Command="{Binding RefreshSerialPortsCommand}"
-                                                ToolTip="Re-read the serial ports reported by Windows." />
                                     </Grid>
-
-                                    <CheckBox Content="Pick the port automatically on connect"
-                                              IsChecked="{Binding AutoDetectDevice}" Margin="0,14,0,0" />
 
                                     <Border Background="{StaticResource SyncFieldBrush}" CornerRadius="8"
                                             Padding="10,8" Margin="0,10,0,0"
@@ -133,20 +124,20 @@
                                             <TextBlock Text="{Binding DeviceVersionText}" FontSize="11"
                                                        Foreground="{StaticResource SyncMutedBrush}"
                                                        TextWrapping="Wrap" />
-                                            <TextBlock Text="Detection sends AF 05 D1 and waits for the controller to answer with Sync Box V1.0."
+                                            <TextBlock Text="The port is found by the AF 05 D1 handshake, never picked by hand. Connect runs the same detection first."
                                                        FontSize="10" Foreground="{StaticResource SyncFaintBrush}"
                                                        TextWrapping="Wrap" Margin="0,4,0,0" />
                                         </StackPanel>
                                     </Border>
 
                                     <TextBlock Text="BAUD RATE" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
-                                    <ComboBox ItemsSource="{Binding BaudRates}" SelectedItem="{Binding SelectedBaud}">
-                                        <ComboBox.ItemTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding StringFormat=N0}" />
-                                            </DataTemplate>
-                                        </ComboBox.ItemTemplate>
-                                    </ComboBox>
+                                    <Border Background="{StaticResource SyncFieldBrush}" CornerRadius="8"
+                                            BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1"
+                                            MinHeight="34" Padding="10,0"
+                                            ToolTip="Fixed so the link can never be opened at the wrong rate.">
+                                        <TextBlock Text="{Binding BaudRateText}" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource SyncMutedBrush}" />
+                                    </Border>
                                 </StackPanel>
 
                                 <StackPanel Visibility="{Binding UseWifi, Converter={StaticResource BoolToVisibility}}">
@@ -182,7 +173,7 @@
                                             <TextBlock Text="{Binding NetworkStatusText}" FontSize="11"
                                                        Foreground="{StaticResource SyncMutedBrush}"
                                                        TextWrapping="Wrap" />
-                                            <TextBlock Text="Scans the router your PC is connected to, not the Wi-Fi networks in range, then picks the device whose name or handshake identifies it as a SyncBox."
+                                            <TextBlock Text="Scans the router your PC is connected to, not the Wi-Fi networks in range. Choosing an entry fills the controller IP."
                                                        FontSize="10" Foreground="{StaticResource SyncFaintBrush}"
                                                        TextWrapping="Wrap" Margin="0,4,0,0" />
                                         </StackPanel>
@@ -203,55 +194,50 @@
                                                FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
                                                TextWrapping="Wrap" Margin="0,10,0,0" />
 
-                                    <Border Height="1" Background="{StaticResource SyncBorderBrush}" Margin="0,14,0,0" />
+                                    <Border Height="1" Background="{StaticResource SyncBorderBrush}" Margin="0,16,0,0" />
 
-                                    <CheckBox Content="Use the controller's own Wi-Fi access point instead"
-                                              IsChecked="{Binding UseControllerAp}" Margin="0,12,0,0" />
-
-                                    <StackPanel Visibility="{Binding UseControllerAp, Converter={StaticResource BoolToVisibility}}">
-                                        <TextBlock Text="WI-FI NETWORK" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
+                                    <TextBlock Text="WI-FI NETWORKS IN RANGE" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
                                         <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <Grid>
-                                                <ComboBox ItemsSource="{Binding AvailableWifiNetworks}"
-                                                          SelectedItem="{Binding SelectedWifiNetwork}"
-                                                          DisplayMemberPath="DisplayName"
-                                                          ToolTip="SyncBox networks found by the last scan." />
-                                                <TextBlock Text="No SyncBox Wi-Fi found yet" Margin="12,0,0,0"
-                                                           VerticalAlignment="Center" IsHitTestVisible="False"
-                                                           FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
-                                                           Visibility="{Binding HasWifiNetworks, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
-                                            </Grid>
-                                            <Button x:Name="ScanWifiButton" Grid.Column="1" Content="Scan" Height="34" MinHeight="34"
-                                                    MinWidth="84" Margin="8,0,0,0"
-                                                    Command="{Binding ScanWifiCommand}"
-                                                    ToolTip="Look for Wi-Fi networks named like SyncBox." />
+                                            <ComboBox ItemsSource="{Binding AvailableWifiNetworks}"
+                                                      SelectedItem="{Binding SelectedWifiNetwork}"
+                                                      DisplayMemberPath="DisplayName"
+                                                      ToolTip="Every network Windows can see. SyncBox ones are listed first." />
+                                            <TextBlock Text="No Wi-Fi networks found yet" Margin="12,0,0,0"
+                                                       VerticalAlignment="Center" IsHitTestVisible="False"
+                                                       FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
+                                                       Visibility="{Binding HasWifiNetworks, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
                                         </Grid>
+                                        <Button x:Name="ScanWifiButton" Grid.Column="1" Content="Scan" Height="34" MinHeight="34"
+                                                MinWidth="84" Margin="8,0,0,0"
+                                                Command="{Binding ScanWifiCommand}"
+                                                ToolTip="List the Wi-Fi networks in range and mark the SyncBox ones." />
+                                    </Grid>
 
-                                        <CheckBox Content="Join it automatically on connect"
-                                                  IsChecked="{Binding AutoDetectWifi}" Margin="0,14,0,0" />
+                                    <Border Background="{StaticResource SyncFieldBrush}" CornerRadius="8"
+                                            Padding="10,8" Margin="0,10,0,0"
+                                            BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding WifiStatusText}" FontSize="11"
+                                                       Foreground="{StaticResource SyncMutedBrush}"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="Needed only when the controller creates its own access point. Its gateway becomes the controller IP."
+                                                       FontSize="10" Foreground="{StaticResource SyncFaintBrush}"
+                                                       TextWrapping="Wrap" Margin="0,4,0,0" />
+                                        </StackPanel>
+                                    </Border>
 
-                                        <Border Background="{StaticResource SyncFieldBrush}" CornerRadius="8"
-                                                Padding="10,8" Margin="0,10,0,0"
-                                                BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1">
-                                            <StackPanel>
-                                                <TextBlock Text="{Binding WifiStatusText}" FontSize="11"
-                                                           Foreground="{StaticResource SyncMutedBrush}"
-                                                           TextWrapping="Wrap" />
-                                                <TextBlock Text="Only for an access point created by the controller. The strongest matching network is joined and its gateway becomes the controller IP."
-                                                           FontSize="10" Foreground="{StaticResource SyncFaintBrush}"
-                                                           TextWrapping="Wrap" Margin="0,4,0,0" />
-                                            </StackPanel>
-                                        </Border>
+                                    <CheckBox Content="Join the selected Wi-Fi network when the controller is not on my router"
+                                              IsChecked="{Binding AutoDetectWifi}" Margin="0,12,0,0" />
 
-                                        <TextBlock Text="WIFI PASSWORD (OPTIONAL)" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
-                                        <PasswordBox x:Name="WifiPasswordBox" MaxLength="128"
-                                                     PasswordChanged="OnWifiPasswordChanged"
-                                                     ToolTip="Only needed when that access point is secured. Saved in settings.json on this PC." />
-                                    </StackPanel>
+                                    <TextBlock Text="WIFI PASSWORD (OPTIONAL)" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
+                                    <PasswordBox x:Name="WifiPasswordBox" MaxLength="128"
+                                                 PasswordChanged="OnWifiPasswordChanged"
+                                                 ToolTip="Only needed when that network is secured. Saved in settings.json on this PC." />
                                 </StackPanel>
 
                                 <Button Content="{Binding ConnectButtonText}" Height="46" Margin="0,16,0,0"

@@ -17,13 +17,9 @@ namespace SyncBox.Services
 
         public bool RequireAck { get; set; }
 
-        public bool AutoDetectDevice { get; set; } = true;
-
         public bool AutoDetectWifi { get; set; } = true;
 
         public bool AutoFindOnNetwork { get; set; } = true;
-
-        public bool UseControllerAp { get; set; }
 
         public string WifiPassword { get; set; } = string.Empty;
 
@@ -31,9 +27,10 @@ namespace SyncBox.Services
 
         public int VerticalLedCount { get; set; } = 10;
 
+        /// <summary>Port the handshake picked last time; never chosen by hand.</summary>
         public string ComPort { get; set; } = string.Empty;
 
-        public int BaudRate { get; set; } = 1000000;
+        public int BaudRate { get; set; } = LedLimits.FixedBaudRate;
 
         public string IpAddress { get; set; } = "192.168.4.1";
 
@@ -57,7 +54,7 @@ namespace SyncBox.Services
         {
             HorizontalLedCount = LedLimits.Clamp(HorizontalLedCount);
             VerticalLedCount = LedLimits.Clamp(VerticalLedCount);
-            BaudRate = LedLimits.ClampBaud(BaudRate);
+            BaudRate = LedLimits.FixedBaudRate;
             Port = LedLimits.IsValidPort(Port) ? Port : 1234;
             Brightness = Math.Clamp(Brightness, 0.0, 1.0);
             Gamma = Math.Clamp(Gamma, 0.2, 5.0);

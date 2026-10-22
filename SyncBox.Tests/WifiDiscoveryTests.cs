@@ -132,6 +132,82 @@ namespace SyncBox.Tests
         }
     }
 
+    public class WifiSelectionTests
+    {
+        [Fact]
+        public void EveryVisibleNetworkIsListedWithSyncBoxOnesFirst()
+        {
+            var networks = new List<WifiNetwork>
+            {
+                new("Neighbour", 99, true, WifiSecurityKind.Wpa2Psk),
+                new("MySyncBox", 20, false, WifiSecurityKind.Open),
+                new("SyncBox", 10, false, WifiSecurityKind.Open),
+                new("Cafe", 80, true, WifiSecurityKind.Wpa2Psk),
+            };
+
+            IReadOnlyList<WifiNetwork> ordered = WifiDiscovery.SortForDisplay(networks);
+
+            Assert.Equal(4, ordered.Count);
+            Assert.Equal("SyncBox", ordered[0].Ssid);
+            Assert.Equal("MySyncBox", ordered[1].Ssid);
+            Assert.Equal("Neighbour", ordered[2].Ssid);
+            Assert.Equal("Cafe", ordered[3].Ssid);
+            Assert.Empty(WifiDiscovery.SortForDisplay(null));
+        }
+
+        [Fact]
+        public void ANetworkWithADifferentNameCanStillBeSelectedByHand()
+        {
+            var networks = new List<WifiNetwork>
+            {
+                new("SyncBox", 90, false, WifiSecurityKind.Open),
+                new("ESP_4F2A19", 40, false, WifiSecurityKind.Open),
+            };
+
+            WifiNetwork? chosen = WifiDiscovery.ChooseTarget(networks, "ESP_4F2A19");
+
+            Assert.NotNull(chosen);
+            Assert.Equal("ESP_4F2A19", chosen!.Ssid);
+        }
+
+        [Fact]
+        public void WithoutASelectionTheBestSyncBoxNetworkIsUsed()
+        {
+            var networks = new List<WifiNetwork>
+            {
+                new("Neighbour", 99, true, WifiSecurityKind.Wpa2Psk),
+                new("Sync-Box-V1", 55, false, WifiSecurityKind.Open),
+            };
+
+            WifiNetwork? chosen = WifiDiscovery.ChooseTarget(networks, null);
+
+            Assert.NotNull(chosen);
+            Assert.Equal("Sync-Box-V1", chosen!.Ssid);
+        }
+
+        [Fact]
+        public void NoSelectionAndNoMatchYieldsNothing()
+        {
+            var networks = new List<WifiNetwork>
+            {
+                new("Neighbour", 99, true, WifiSecurityKind.Wpa2Psk),
+            };
+
+            Assert.Null(WifiDiscovery.ChooseTarget(networks, null));
+            Assert.Null(WifiDiscovery.ChooseTarget(null, "SyncBox"));
+            Assert.Null(WifiDiscovery.ChooseTarget(Array.Empty<WifiNetwork>(), "SyncBox"));
+        }
+
+        [Theory]
+        [InlineData("Sync-Box-V1", true)]
+        [InlineData("SyncBox", true)]
+        [InlineData("Neighbour", false)]
+        public void NetworksReportWhetherTheyLookLikeTheController(string ssid, bool expected)
+        {
+            Assert.Equal(expected, new WifiNetwork(ssid, 50, false, WifiSecurityKind.Open).LooksLikeController);
+        }
+    }
+
     public class WifiProfileTests
     {
         [Fact]

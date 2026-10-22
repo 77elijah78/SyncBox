@@ -96,15 +96,18 @@ namespace SyncBox.Services
 
                 progress?.Report("Scanning the Wi-Fi networks in range...");
                 session.RequestScan();
-                // Waiting for "any network" returned the stale cache: WlanScan takes a
-                // few seconds and the list still holds the previous scan, so the
-                // controller's own AP could be missing on the first try.
+                // Wait until a SyncBox-looking SSID shows up (a fresh scan), then return
+                // every network so the interface can show all the names it can see.
                 IReadOnlyList<WifiNetwork> networks = session.WaitForNetworks(
                     ScanBudget,
                     list => WifiDiscovery.FindControllerNetworks(list).Count > 0,
                     token);
 
-                return new WifiScanResult(true, WifiDiscovery.DescribeScan(networks), networks);
+                string summary = networks.Count == 0
+                    ? "No Wi-Fi networks are in range."
+                    : WifiDiscovery.DescribeScan(networks) +
+                      $" {networks.Count} network(s) listed.";
+                return new WifiScanResult(true, summary, networks);
             }
             catch (OperationCanceledException)
             {
@@ -151,19 +154,22 @@ namespace SyncBox.Services
 
                 IReadOnlyList<WifiNetwork> networks = session.WaitForNetworks(
                     ScanBudget,
-                    list => WifiDiscovery.FindControllerNetworks(list).Count > 0,
+                    list => WifiDiscovery.FindControllerNetworks(list).Count > 0 ||
+                            (!string.IsNullOrWhiteSpace(preferredSsid) && list.Any(network =>
+                                string.Equals(network.Ssid, preferredSsid!.Trim(), StringComparison.OrdinalIgnoreCase))),
                     token);
 
-                IReadOnlyList<WifiNetwork> matches = WifiDiscovery.FindControllerNetworks(networks);
-                if (matches.Count == 0)
+                WifiNetwork? target = WifiDiscovery.ChooseTarget(networks, preferredSsid);
+                if (target is null)
                 {
                     return WifiJoinOutcome.Failed(
-                        WifiDiscovery.DescribeMatches(matches, networks.Count) +
-                        " Power the controller on, or join its network once from the Windows Wi-Fi menu.",
+                        WifiDiscovery.DescribeMatches(
+                            WifiDiscovery.FindControllerNetworks(networks),
+                            networks.Count) +
+                        " Power the controller on, pick its network in the list, or join it once from the Windows Wi-Fi menu.",
                         networks);
                 }
 
-                WifiNetwork target = WifiDiscovery.ChooseControllerNetwork(matches, preferredSsid)!;
                 if (target.IsConnected)
                 {
                     string? currentAddress = session.FindGatewayAddress(target.InterfaceGuid);

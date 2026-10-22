@@ -51,6 +51,8 @@ namespace SyncBox.Services
 
         public bool HasProfile => !string.IsNullOrWhiteSpace(ProfileName);
 
+        public bool LooksLikeController => WifiDiscovery.IsControllerSsid(Ssid);
+
         public string DisplayName
         {
             get
@@ -141,6 +143,51 @@ namespace SyncBox.Services
                 .ThenByDescending(network => network.IsConnected)
                 .ThenByDescending(network => network.SignalQuality)
                 .ToList();
+        }
+
+        /// <summary>
+        /// Every visible network, with the SyncBox-looking ones first so the names that
+        /// matter are readable at the top of the list.
+        /// </summary>
+        public static IReadOnlyList<WifiNetwork> SortForDisplay(IEnumerable<WifiNetwork>? networks)
+        {
+            if (networks is null)
+            {
+                return Array.Empty<WifiNetwork>();
+            }
+
+            return networks
+                .OrderByDescending(network => Rank(network.Ssid))
+                .ThenByDescending(network => network.IsConnected)
+                .ThenByDescending(network => network.SignalQuality)
+                .ThenBy(network => network.Ssid, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Picks the network to join: the caller's selection when it is in range, else the
+        /// best SyncBox match. Any network can be joined when it is selected by hand, so
+        /// an access point with a different name still works.
+        /// </summary>
+        public static WifiNetwork? ChooseTarget(IReadOnlyList<WifiNetwork>? networks, string? preferredSsid)
+        {
+            if (networks is null || networks.Count == 0)
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(preferredSsid))
+            {
+                string preferred = preferredSsid.Trim();
+                WifiNetwork? selected = networks.FirstOrDefault(
+                    network => string.Equals(network.Ssid, preferred, StringComparison.OrdinalIgnoreCase));
+                if (selected is not null)
+                {
+                    return selected;
+                }
+            }
+
+            return ChooseControllerNetwork(FindControllerNetworks(networks), null);
         }
 
         /// <summary>

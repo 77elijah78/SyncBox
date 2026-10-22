@@ -7,6 +7,9 @@ namespace SyncBox.Services
         public const int MinLedCount = 1;
         public const int MaxLedCount = 1024;
 
+        /// <summary>The controller always talks at this rate; the UI no longer offers a choice.</summary>
+        public const int FixedBaudRate = 1000000;
+
         public static int Clamp(int value) => Math.Clamp(value, MinLedCount, MaxLedCount);
 
         public static int ClampBaud(int value) => value is 9600 or 19200 or 38400 or 57600 or 115200 or 230400 or 460800 or 500000 or 921600 or 1000000 or 1500000 or 2000000
