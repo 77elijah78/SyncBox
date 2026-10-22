@@ -19,15 +19,25 @@ namespace SyncBox.Services
             string? macAddress,
             string? vendor,
             string? handshake,
-            bool ledPortOpen)
+            bool ledPortOpen,
+            string? service = null,
+            bool responded = false,
+            bool controllerAnswered = false,
+            bool isGateway = false,
+            bool isLocalMachine = false)
         {
             Address = address;
             HostName = string.IsNullOrWhiteSpace(hostName) ? null : hostName.Trim();
             MacAddress = string.IsNullOrWhiteSpace(macAddress) ? null : macAddress.Trim();
             Vendor = string.IsNullOrWhiteSpace(vendor) ? null : vendor;
             Handshake = string.IsNullOrWhiteSpace(handshake) ? null : handshake.Trim();
+            Service = string.IsNullOrWhiteSpace(service) ? null : service.Trim();
             LedPortOpen = ledPortOpen;
-            Score = LanDiscovery.ScoreDevice(HostName, MacAddress, Handshake, ledPortOpen);
+            Responded = responded;
+            ControllerAnswered = controllerAnswered;
+            IsGateway = isGateway;
+            IsLocalMachine = isLocalMachine;
+            Score = LanDiscovery.ScoreDevice(HostName, MacAddress, Handshake, ledPortOpen, Service, controllerAnswered);
         }
 
         public IPAddress Address { get; }
@@ -39,6 +49,19 @@ namespace SyncBox.Services
         public string? Vendor { get; }
 
         public string? Handshake { get; }
+
+        /// <summary>Name the device itself announced over mDNS, SSDP or NetBIOS.</summary>
+        public string? Service { get; }
+
+        /// <summary>True when a ping or a broadcast question was answered by this address.</summary>
+        public bool Responded { get; }
+
+        /// <summary>True when the LED port of this address answered the handshake burst.</summary>
+        public bool ControllerAnswered { get; }
+
+        public bool IsGateway { get; }
+
+        public bool IsLocalMachine { get; }
 
         public bool LedPortOpen { get; }
 
@@ -53,10 +76,26 @@ namespace SyncBox.Services
         {
             get
             {
-                string label = Handshake ?? HostName ?? Vendor ?? "unnamed device";
-                if (HostName is not null && Vendor is not null && !string.Equals(label, Vendor, StringComparison.Ordinal))
+                string? name = Handshake ?? (ControllerAnswered ? "SyncBox controller" : null) ?? HostName ?? Service;
+                if (name is null && IsLocalMachine)
                 {
-                    label = $"{label} ({Vendor})";
+                    name = "This PC";
+                }
+                else if (name is null && IsGateway)
+                {
+                    name = "Router";
+                }
+
+                string label = name ?? Vendor ?? "Unknown device";
+                if (name is not null && Vendor is not null && !string.Equals(name, Vendor, StringComparison.Ordinal))
+                {
+                    label = $"{name} ({Vendor})";
+                }
+                else if (name is null && Vendor is null && MacAddress is not null)
+                {
+                    // No name at all: the MAC is the only thing the router's own client
+                    // list can be compared with.
+                    label = $"{label} ({MacAddress})";
                 }
 
                 return $"{AddressText} - {label}";
@@ -110,6 +149,15 @@ namespace SyncBox.Services
         private const int ProbeConcurrency = 48;
         private const int IdentifyBudgetMs = 2500;
         private const int MaxResolvedHosts = 512;
+        private const int PingTimeoutMs = 250;
+        private const int PingConcurrency = 64;
+        private const int BroadcastWindowMs = 900;
+
+        /// <summary>
+        /// A MAC address used by more addresses than this is a router answering ARP on
+        /// behalf of its clients, not a device; those addresses prove nothing.
+        /// </summary>
+        public const int ProxyMacAddressLimit = 4;
 
         private static readonly string[] VirtualAdapterMarkers =
         {
@@ -132,9 +180,10 @@ namespace SyncBox.Services
         public static bool IsSupported => OperatingSystem.IsWindows();
 
         /// <summary>
-        /// Finds the controller from the router's MAC/ARP table instead of pinging every
-        /// address. Reading the table is instant, and a short burst of handshake packets
-        /// makes the router fill it in for hosts the PC has not talked to yet.
+        /// Lists the devices on the router the PC is connected to. Three independent
+        /// sources are merged: a ping of every address (a device answers its own ping even
+        /// when the router answers ARP for it), the ARP table (MAC addresses), and mDNS,
+        /// SSDP and NetBIOS (names). The handshake burst is what marks the controller.
         /// </summary>
         public static LanScanResult Scan(int port, IProgress<string>? progress = null, CancellationToken token = default)
         {
@@ -156,63 +205,61 @@ namespace SyncBox.Services
                 }
 
                 var subnetsText = subnets.Select(subnet => subnet.ToString()).ToList();
+                IReadOnlyCollection<IPAddress> gateways = FindGatewayAddresses();
 
-                // 1. Whatever the ARP table already knows costs nothing at all.
+                progress?.Report($"Looking for the devices on {string.Join(", ", subnetsText)}...");
+
+                // Pinging every address and asking the network for names each take about a
+                // second, so they run while the ARP table is being filled in. All three
+                // answers are needed before a device can be judged.
+                Task<HashSet<IPAddress>> pingTask = Task.Run(
+                    () => PingSweepAsync(subnets, token),
+                    CancellationToken.None);
+                Task<IReadOnlyDictionary<IPAddress, LanName>> nameTask = Task.Run(
+                    () => NetworkNames.Discover(subnets, BroadcastWindowMs, token),
+                    CancellationToken.None);
+
                 IReadOnlyDictionary<IPAddress, string> arp = ReadArpTable();
-                progress?.Report($"Reading the MAC table of {string.Join(", ", subnetsText)}...");
-
-                // 2. One packet per address makes the router reveal the rest. Nothing is
-                //    awaited, so this takes milliseconds instead of a ping timeout per host.
                 Dictionary<IPAddress, string> replies = PrimeArpCache(subnets, port, token);
 
-                // 3. Give the ARP table a moment to fill in, then read it again.
-                DateTime deadline = DateTime.UtcNow.AddMilliseconds(ArpSettleMs);
-                while (DateTime.UtcNow < deadline && !token.IsCancellationRequested)
+                DateTime settle = DateTime.UtcNow.AddMilliseconds(ArpSettleMs);
+                while (DateTime.UtcNow < settle && !token.IsCancellationRequested)
                 {
                     arp = ReadArpTable();
-                    bool foundEveryReply = replies.Keys.All(address => arp.ContainsKey(address));
-                    if (arp.Count > 0 && foundEveryReply)
+                    if (arp.Count > 0 && replies.Keys.All(address => arp.ContainsKey(address)))
                     {
                         break;
                     }
 
-                    token.WaitHandle.WaitOne(80);
+                    token.WaitHandle.WaitOne(60);
                 }
 
                 arp = ReadArpTable();
 
-                IReadOnlyCollection<IPAddress> gateways = FindGatewayAddresses();
-                var alive = new HashSet<IPAddress>();
-                foreach (KeyValuePair<IPAddress, string> entry in arp)
+                HashSet<IPAddress> alive;
+                try
                 {
-                    if (subnets.Any(subnet => subnet.Contains(entry.Key)))
-                    {
-                        alive.Add(entry.Key);
-                    }
+                    alive = pingTask.GetAwaiter().GetResult();
+                }
+                catch (Exception)
+                {
+                    alive = new HashSet<IPAddress>();
                 }
 
-                foreach (IPAddress address in replies.Keys)
+                IReadOnlyDictionary<IPAddress, LanName> discoveredNames;
+                try
                 {
-                    alive.Add(address);
+                    discoveredNames = nameTask.GetAwaiter().GetResult();
+                }
+                catch (Exception)
+                {
+                    discoveredNames = new Dictionary<IPAddress, LanName>();
                 }
 
-                // Routers on guest and mobile networks answer ARP for every address, which
-                // makes a whole subnet look "connected": those replies all carry the
-                // gateway's MAC, so they are dropped before any name lookup happens.
-                foreach (IPAddress gateway in gateways)
-                {
-                    if (!arp.TryGetValue(gateway, out string? gatewayMac))
-                    {
-                        continue;
-                    }
+                token.ThrowIfCancellationRequested();
 
-                    alive.RemoveWhere(address =>
-                        !address.Equals(gateway) &&
-                        arp.TryGetValue(address, out string? mac) &&
-                        string.Equals(mac, gatewayMac, StringComparison.OrdinalIgnoreCase));
-                }
-
-                if (alive.Count == 0)
+                List<Candidate> candidates = CollectCandidates(subnets, gateways, arp, replies, alive, discoveredNames);
+                if (candidates.Count == 0)
                 {
                     return new LanScanResult(
                         true,
@@ -221,18 +268,10 @@ namespace SyncBox.Services
                         subnetsText);
                 }
 
-                progress?.Report($"Checking the devices on {string.Join(", ", subnetsText)}...");
-                IReadOnlyList<LanDevice> devices = Identify(alive, arp, replies, gateways, port, token);
+                progress?.Report($"Reading the names of {candidates.Count} device(s) on {string.Join(", ", subnetsText)}...");
+                IReadOnlyList<LanDevice> devices = Identify(candidates, port, token);
 
-                // A router's client list only shows real devices: an address that has a
-                // name, answers the handshake, is Espressif hardware or is the gateway.
-                // Proxy-ARP noise (an address with a MAC and nothing else) stays hidden.
-                IReadOnlyList<LanDevice> listed = devices
-                    .Where(device => IsIdentified(device, gateways))
-                    .ToList();
-
-                string summary = DescribeScan(listed, subnetsText);
-                return new LanScanResult(true, summary, listed, subnetsText);
+                return new LanScanResult(true, DescribeScan(devices, subnetsText), devices, subnetsText);
             }
             catch (OperationCanceledException)
             {
@@ -242,6 +281,222 @@ namespace SyncBox.Services
             {
                 return new LanScanResult(false, "The network scan failed: " + ex.Message, Array.Empty<LanDevice>(), Array.Empty<string>());
             }
+        }
+
+        /// <summary>
+        /// Merges everything the scan learned into one entry per address. A router that
+        /// answers ARP for the whole subnet makes every address look alive and gives them
+        /// all the same MAC; that MAC is thrown away, and an address only stays when
+        /// something else proves it exists (a ping, a name, the handshake, the gateway or
+        /// this PC).
+        /// </summary>
+        private static List<Candidate> CollectCandidates(
+            IReadOnlyList<LocalSubnet> subnets,
+            IReadOnlyCollection<IPAddress> gateways,
+            IReadOnlyDictionary<IPAddress, string> arp,
+            IReadOnlyDictionary<IPAddress, string> replies,
+            IReadOnlyCollection<IPAddress> alive,
+            IReadOnlyDictionary<IPAddress, LanName> discoveredNames)
+        {
+            var candidates = new Dictionary<IPAddress, Candidate>();
+
+            bool InSubnet(IPAddress address) => subnets.Any(subnet => subnet.Contains(address));
+
+            Candidate Get(IPAddress address)
+            {
+                if (!candidates.TryGetValue(address, out Candidate? candidate))
+                {
+                    candidate = new Candidate(address);
+                    candidates[address] = candidate;
+                }
+
+                return candidate;
+            }
+
+            foreach (KeyValuePair<IPAddress, string> entry in arp)
+            {
+                if (InSubnet(entry.Key))
+                {
+                    Get(entry.Key).MacAddress = entry.Value;
+                }
+            }
+
+            foreach (KeyValuePair<IPAddress, string> reply in replies)
+            {
+                if (!InSubnet(reply.Key))
+                {
+                    continue;
+                }
+
+                Candidate candidate = Get(reply.Key);
+                candidate.ControllerAnswered = true;
+                if (!string.IsNullOrWhiteSpace(reply.Value))
+                {
+                    candidate.Handshake = reply.Value.Trim();
+                }
+            }
+
+            foreach (IPAddress address in alive)
+            {
+                if (InSubnet(address))
+                {
+                    Get(address).Responded = true;
+                }
+            }
+
+            foreach (KeyValuePair<IPAddress, LanName> pair in discoveredNames)
+            {
+                if (!InSubnet(pair.Key))
+                {
+                    continue;
+                }
+
+                Candidate candidate = Get(pair.Key);
+                candidate.Responded = true;
+                if (candidate.Service is null && !string.IsNullOrWhiteSpace(pair.Value.Name))
+                {
+                    candidate.Service = pair.Value.Name;
+                }
+            }
+
+            foreach (IPAddress gateway in gateways)
+            {
+                if (InSubnet(gateway))
+                {
+                    Get(gateway).IsGateway = true;
+                }
+            }
+
+            foreach (LocalSubnet subnet in subnets)
+            {
+                Get(subnet.Address).IsLocalMachine = true;
+            }
+
+            IReadOnlyDictionary<string, int> macCounts = CountMacAddresses(arp);
+            var kept = new List<Candidate>();
+            foreach (Candidate candidate in candidates.Values)
+            {
+                if (candidate.MacAddress is not null && IsProxyMac(candidate.MacAddress, macCounts))
+                {
+                    // The router answered for this address, so the MAC is the router's.
+                    candidate.MacAddress = null;
+                }
+
+                bool realDevice = candidate.IsGateway ||
+                                  candidate.IsLocalMachine ||
+                                  candidate.Responded ||
+                                  candidate.ControllerAnswered ||
+                                  candidate.MacAddress is not null;
+                if (realDevice)
+                {
+                    kept.Add(candidate);
+                }
+            }
+
+            return kept;
+        }
+
+        /// <summary>
+        /// Pings every address of the local subnets in parallel. Unlike ARP this cannot be
+        /// faked by a router: only a device that is switched on answers its own ping.
+        /// </summary>
+        public static async Task<HashSet<IPAddress>> PingSweepAsync(
+            IReadOnlyList<LocalSubnet> subnets,
+            CancellationToken token)
+        {
+            var alive = new HashSet<IPAddress>();
+            var hosts = new List<IPAddress>();
+            foreach (LocalSubnet subnet in subnets)
+            {
+                hosts.AddRange(EnumerateHosts(subnet.Address, subnet.Mask));
+            }
+
+            hosts.RemoveAll(host => subnets.Any(subnet => host.Equals(subnet.Address)));
+
+            using var throttle = new SemaphoreSlim(PingConcurrency);
+            var tasks = new List<Task>(hosts.Count);
+            foreach (IPAddress host in hosts)
+            {
+                if (token.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                tasks.Add(Task.Run(async () =>
+                {
+                    bool acquired = false;
+                    try
+                    {
+                        await throttle.WaitAsync(token).ConfigureAwait(false);
+                        acquired = true;
+                    }
+                    catch (Exception)
+                    {
+                    }
+
+                    if (!acquired)
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        using var ping = new Ping();
+                        PingReply reply = await ping
+                            .SendPingAsync(host, PingTimeoutMs)
+                            .WaitAsync(token)
+                            .ConfigureAwait(false);
+                        if (reply.Status == IPStatus.Success)
+                        {
+                            lock (alive)
+                            {
+                                alive.Add(host);
+                            }
+                        }
+                    }
+                    catch (Exception)
+                    {
+                    }
+                    finally
+                    {
+                        throttle.Release();
+                    }
+                }, token));
+            }
+
+            try
+            {
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+            }
+
+            return alive;
+        }
+
+        private sealed class Candidate
+        {
+            public Candidate(IPAddress address)
+            {
+                Address = address;
+            }
+
+            public IPAddress Address { get; }
+
+            public string? MacAddress { get; set; }
+
+            public string? Service { get; set; }
+
+            public string? Handshake { get; set; }
+
+            public bool Responded { get; set; }
+
+            public bool ControllerAnswered { get; set; }
+
+            public bool IsGateway { get; set; }
+
+            public bool IsLocalMachine { get; set; }
         }
 
         /// <summary>
@@ -319,7 +574,10 @@ namespace SyncBox.Services
                 }
                 catch (SocketException)
                 {
-                    break;
+                    // Sending to a closed port makes the far side answer with an ICMP
+                    // "unreachable", which surfaces as an error on the next receive. That
+                    // is not a reason to stop listening for a real handshake reply.
+                    continue;
                 }
             }
 
@@ -439,7 +697,13 @@ namespace SyncBox.Services
         public static string? VendorFor(string? macAddress) =>
             IsEspressifOui(macAddress) ? "Espressif" : null;
 
-        public static int ScoreDevice(string? hostName, string? macAddress, string? handshake, bool ledPortOpen)
+        public static int ScoreDevice(
+            string? hostName,
+            string? macAddress,
+            string? handshake,
+            bool ledPortOpen,
+            string? service = null,
+            bool controllerAnswered = false)
         {
             if (!string.IsNullOrWhiteSpace(handshake) &&
                 handshake.Contains(DeviceDiscovery.FeedbackPrefix, StringComparison.OrdinalIgnoreCase))
@@ -447,7 +711,15 @@ namespace SyncBox.Services
                 return 100;
             }
 
-            int best = ScoreHostName(hostName);
+            // A device that answers on the LED port is a controller even when the reply is
+            // not the usual banner, so a firmware that stays quiet or answers differently
+            // no longer hides from the scan.
+            if (controllerAnswered)
+            {
+                return 92;
+            }
+
+            int best = Math.Max(ScoreHostName(hostName), ScoreHostName(service));
             if (IsEspressifOui(macAddress))
             {
                 best = Math.Max(best, 55);
@@ -505,14 +777,39 @@ namespace SyncBox.Services
         }
 
         /// <summary>
-        /// True when the entry carries something a person can recognise, which is what a
-        /// router's client list shows. Bare addresses are dropped.
+        /// True when the entry is a device rather than an address a router invented: the
+        /// gateway, this PC, anything that answered, or an address with its own MAC. An
+        /// unnamed phone is still a device, so a missing name is not a reason to hide it.
         /// </summary>
-        public static bool IsIdentified(LanDevice device, IReadOnlyCollection<IPAddress> gateways) =>
-            device.Handshake is not null ||
-            device.HostName is not null ||
-            device.Vendor is not null ||
-            gateways.Contains(device.Address);
+        public static bool ShouldList(LanDevice device) =>
+            device.IsGateway ||
+            device.IsLocalMachine ||
+            device.Responded ||
+            device.ControllerAnswered ||
+            device.MacAddress is not null;
+
+        /// <summary>Counts how many addresses use each MAC, which exposes proxy ARP.</summary>
+        public static IReadOnlyDictionary<string, int> CountMacAddresses(IReadOnlyDictionary<IPAddress, string> arp)
+        {
+            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (string mac in arp.Values)
+            {
+                if (string.IsNullOrWhiteSpace(mac))
+                {
+                    continue;
+                }
+
+                counts.TryGetValue(mac, out int count);
+                counts[mac] = count + 1;
+            }
+
+            return counts;
+        }
+
+        public static bool IsProxyMac(string? macAddress, IReadOnlyDictionary<string, int> counts) =>
+            macAddress is not null &&
+            counts.TryGetValue(macAddress, out int count) &&
+            count > ProxyMacAddressLimit;
 
         public static IReadOnlyCollection<IPAddress> FindGatewayAddresses()
         {
@@ -545,67 +842,101 @@ namespace SyncBox.Services
         }
 
         private static IReadOnlyList<LanDevice> Identify(
-            IReadOnlyCollection<IPAddress> addresses,
-            IReadOnlyDictionary<IPAddress, string> arp,
-            IReadOnlyDictionary<IPAddress, string> replies,
-            IReadOnlyCollection<IPAddress> gateways,
+            IReadOnlyList<Candidate> candidates,
             int port,
             CancellationToken token)
         {
             var devices = new List<LanDevice>();
-            using var throttle = new SemaphoreSlim(ProbeConcurrency);
-
-            // Name lookups are the slow part of the scan, so they run under their own
-            // budget: whatever answered in time is kept, the rest is reported without a
-            // name instead of holding the whole scan hostage.
+            var throttle = new SemaphoreSlim(ProbeConcurrency);
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
             budget.CancelAfter(IdentifyBudgetMs);
             CancellationToken identifyToken = budget.Token;
 
-            var tasks = new List<Task>();
-            int candidates = 0;
-
-            foreach (IPAddress address in addresses)
+            var tasks = new List<Task>(candidates.Count);
+            foreach (Candidate candidate in candidates.Take(MaxResolvedHosts))
             {
-                if (candidates++ >= MaxResolvedHosts)
-                {
-                    break;
-                }
-
-                token.ThrowIfCancellationRequested();
                 tasks.Add(Task.Run(async () =>
                 {
-                    await throttle.WaitAsync(identifyToken).ConfigureAwait(false);
+                    bool acquired = false;
                     try
                     {
-                        string? hostName = await ResolveHostNameAsync(address, identifyToken).ConfigureAwait(false);
-                        if (hostName is null && gateways.Contains(address))
+                        await throttle.WaitAsync(identifyToken).ConfigureAwait(false);
+                        acquired = true;
+                    }
+                    catch (Exception)
+                    {
+                    }
+
+                    if (!acquired)
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        // A name the device announced itself beats reverse DNS, which home
+                        // routers answer for only a handful of their clients. A failed
+                        // lookup must not cost the device its row in the list.
+                        string? hostName = null;
+                        if (candidate.Service is null)
                         {
-                            // The router rarely answers reverse DNS; give it a usable name.
+                            try
+                            {
+                                hostName = await ResolveHostNameAsync(candidate.Address, identifyToken).ConfigureAwait(false);
+                            }
+                            catch (Exception)
+                            {
+                            }
+                        }
+
+                        if (hostName is null && candidate.IsLocalMachine)
+                        {
+                            hostName = Environment.MachineName;
+                        }
+
+                        if (hostName is null && candidate.IsGateway)
+                        {
                             hostName = "Router";
                         }
-                        replies.TryGetValue(address, out string? handshake);
-                        arp.TryGetValue(address, out string? mac);
 
                         // The handshake was already aimed at every address, so a silent
-                        // host is silent; only Espressif hardware is worth a TCP probe.
-                        bool portOpen = handshake is null &&
-                                        port > 0 &&
-                                        IsEspressifOui(mac) &&
-                                        await ProbeTcpAsync(address, port, identifyToken).ConfigureAwait(false);
+                        // host is silent; only Espressif hardware is worth a port probe.
+                        bool portOpen = false;
+                        if (candidate.Handshake is null &&
+                            !candidate.ControllerAnswered &&
+                            candidate.MacAddress is not null &&
+                            port > 0 &&
+                            IsEspressifOui(candidate.MacAddress))
+                        {
+                            try
+                            {
+                                portOpen = await ProbeTcpAsync(candidate.Address, port, identifyToken).ConfigureAwait(false);
+                            }
+                            catch (Exception)
+                            {
+                            }
+                        }
 
                         var device = new LanDevice(
-                            address,
+                            candidate.Address,
                             hostName,
-                            mac,
-                            VendorFor(mac),
-                            handshake,
-                            portOpen);
+                            candidate.MacAddress,
+                            VendorFor(candidate.MacAddress),
+                            candidate.Handshake,
+                            portOpen,
+                            candidate.Service,
+                            candidate.Responded,
+                            candidate.ControllerAnswered,
+                            candidate.IsGateway,
+                            candidate.IsLocalMachine);
 
                         lock (devices)
                         {
                             devices.Add(device);
                         }
+                    }
+                    catch (Exception)
+                    {
                     }
                     finally
                     {
@@ -623,8 +954,6 @@ namespace SyncBox.Services
             }
             catch (AggregateException)
             {
-                // A cancelled probe rejects with AggregateException; the devices that did
-                // answer are still worth reporting.
             }
 
             IReadOnlyList<LanDevice> snapshot;
@@ -634,6 +963,7 @@ namespace SyncBox.Services
             }
 
             return snapshot
+                .Where(ShouldList)
                 .OrderByDescending(device => device.Score)
                 .ThenBy(device => device.Address, IpAddressComparer.Instance)
                 .ToList();

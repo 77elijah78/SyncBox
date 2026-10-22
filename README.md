@@ -48,36 +48,36 @@ a message instead of guessing a port, so a wrong port can never be opened silent
 
 ## Network discovery (devices on your router)
 
-This is the default way to find the controller over Wi-Fi. It reads the router's
-MAC/ARP table instead of pinging every address, so a scan takes about a second instead
-of sweeping 254 hosts with ping timeouts.
+This is the default way to find the controller over Wi-Fi. Three independent sources are
+merged so the list looks like the router's own client table:
 
-With *Find the controller automatically* enabled (the default), connecting over UDP:
+1. **A ping of every address** on the local IPv4 subnets, 64 at a time with a 250 ms
+   timeout. A router that answers ARP for the whole subnet (proxy ARP, common on guest and
+   mobile networks) cannot fake this: only a powered device answers its own ping.
+2. **The ARP table**, which supplies the MAC address of every device this PC has talked
+   to. One `AF 05 D1` datagram is sent to every address plus a broadcast copy so the table
+   fills in for hosts that were never contacted. A MAC used by many addresses belongs to
+   the router, not to a device, and is dropped — that is what used to turn a /24 into 255
+   fake rows.
+3. **mDNS, SSDP and NetBIOS**, asked in parallel for 900 ms, which turn an address into a
+   name (`Living Room TV`, `DESKTOP-ABC`, `SyncBox-D4F1`) and also reach devices a router
+   hides behind proxy ARP. UPnP devices are asked for their `friendlyName`.
 
-1. reads the ARP table, which already lists every device this PC has talked to;
-2. sends one `AF 05 D1` datagram to every address of the local IPv4 subnets from a single
-   socket, plus a broadcast copy. Sending is fire-and-forget, and because the operating
-   system must resolve a MAC before it can send, the router's answer fills the ARP table;
-3. collects any handshake replies for 700 ms and re-reads the ARP table for up to 1.2 s;
-4. resolves host names for the devices that showed up and scores them: handshake **100**,
-   host name `SyncBox`/`Sync-Box-V1` style **85-95**, Espressif MAC **55**, open LED port
-   **60**, plain ARP entry **10**.
+An address is listed when it is the gateway (*Router*), this PC, answered a ping or one of
+the name questions, or has its own MAC address. A device without a name is still listed —
+that is what a phone with a randomised MAC looks like — with its MAC in place of a name.
+Addresses that exist only because the router answered ARP for them are dropped.
 
-Devices at or above **80** are picked automatically — the same name-matching rules as the
-serial path, applied to the host name, where `Sync-Box-V1` matches because it starts with
-`SyncBox` once separators and case are ignored.
+Scoring for the controller: handshake **100**, any answer on the LED port **92**, host name
+`SyncBox`/`Sync-Box-V1` style **85-95** (same matching rules as the serial path), open LED
+port **60**, Espressif MAC **55**, anything else **10**. Devices at or above **80** are
+picked automatically. Choosing a row fills *Controller IP*; *Scan* runs the same lookup
+without connecting. DNS lookups run in parallel with a 200 ms timeout and a 2.5 s budget,
+so a scan finishes in about two seconds.
 
-Like a router's client list, only devices that can be recognised are listed: an entry with
-a host name, an answered handshake, Espressif hardware or the gateway itself. Addresses
-that are merely present in the ARP table (proxy-ARP noise on guest and mobile networks)
-are hidden, so the list stays short and every row has a name. Choosing a row fills
-*Controller IP*; *Scan* runs the same lookup without connecting. Name lookups run in
-parallel with a 200 ms timeout and a 2.5 s budget, so a scan finishes in about a second.
-
-Because discovery happens at the MAC/ARP level, a controller whose firmware drops ICMP
-echo requests is still found — that was the case when pinging never saw it. If the list
-is empty, check that the PC is on the same router/subnet and that the network profile is
-*Private* in Windows.
+If the list is much shorter than the router's client list, the wireless network is
+probably isolating clients (AP isolation or a guest network): those devices cannot reach
+each other, so only the router is visible.
 
 ## Wi-Fi access point discovery (fallback)
 

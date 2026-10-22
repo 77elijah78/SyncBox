@@ -194,6 +194,15 @@ namespace SyncBox.Tests
                 null,
                 false);
             Assert.Equal("192.168.1.44 - Espressif", anonymous.DisplayName);
+
+            var unknown = new LanDevice(
+                IPAddress.Parse("192.168.1.99"),
+                null,
+                "AA:BB:CC:DD:EE:FF",
+                null,
+                null,
+                false);
+            Assert.Equal("192.168.1.99 - Unknown device (AA:BB:CC:DD:EE:FF)", unknown.DisplayName);
         }
 
         [Fact]
@@ -219,22 +228,56 @@ namespace SyncBox.Tests
         }
 
         [Fact]
-        public void OnlyDevicesThatIdentifyThemselvesAreListed()
+        public void DevicesAreListedEvenWhenTheyHaveNoName()
         {
-            var gateway = IPAddress.Parse("192.168.1.1");
-            var gateways = new[] { gateway };
+            var phone = new LanDevice(IPAddress.Parse("192.168.1.23"), null, "AA:BB:CC:DD:EE:FF", null, null, false);
+            var pinged = new LanDevice(IPAddress.Parse("192.168.1.24"), null, null, null, null, false, null, true);
+            var answered = new LanDevice(IPAddress.Parse("192.168.1.25"), null, null, null, null, false, null, false, true);
+            var gateway = new LanDevice(IPAddress.Parse("192.168.1.1"), "Router", null, null, null, false, null, false, false, true);
+            var thisPc = new LanDevice(IPAddress.Parse("192.168.1.50"), "This PC", null, null, null, false, null, false, false, false, true);
+            var proxy = new LanDevice(IPAddress.Parse("192.168.1.77"), null, null, null, null, false);
 
-            var named = new LanDevice(IPAddress.Parse("192.168.1.42"), "Sync-Box-V1", null, null, null, false);
-            var handshake = new LanDevice(IPAddress.Parse("192.168.1.43"), null, null, null, "Sync Box V1.0", false);
-            var espressif = new LanDevice(IPAddress.Parse("192.168.1.44"), null, "24:0A:C4:11:22:33", "Espressif", null, false);
-            var router = new LanDevice(gateway, "Router", "00:11:22:33:44:55", null, null, false);
-            var bare = new LanDevice(IPAddress.Parse("192.168.1.99"), null, "AA:BB:CC:DD:EE:FF", null, null, false);
+            Assert.True(LanDiscovery.ShouldList(phone));
+            Assert.True(LanDiscovery.ShouldList(pinged));
+            Assert.True(LanDiscovery.ShouldList(answered));
+            Assert.True(LanDiscovery.ShouldList(gateway));
+            Assert.True(LanDiscovery.ShouldList(thisPc));
+            Assert.False(LanDiscovery.ShouldList(proxy));
+        }
 
-            Assert.True(LanDiscovery.IsIdentified(named, gateways));
-            Assert.True(LanDiscovery.IsIdentified(handshake, gateways));
-            Assert.True(LanDiscovery.IsIdentified(espressif, gateways));
-            Assert.True(LanDiscovery.IsIdentified(router, gateways));
-            Assert.False(LanDiscovery.IsIdentified(bare, gateways));
+        [Fact]
+        public void AMacAddressSharedByTheWholeSubnetIsAProxy()
+        {
+            var arp = new Dictionary<IPAddress, string>
+            {
+                [IPAddress.Parse("192.168.1.1")] = "00:11:22:33:44:55",
+                [IPAddress.Parse("192.168.1.10")] = "00:11:22:33:44:55",
+                [IPAddress.Parse("192.168.1.11")] = "00:11:22:33:44:55",
+                [IPAddress.Parse("192.168.1.12")] = "00:11:22:33:44:55",
+                [IPAddress.Parse("192.168.1.13")] = "00:11:22:33:44:55",
+                [IPAddress.Parse("192.168.1.14")] = "00:11:22:33:44:55",
+                [IPAddress.Parse("192.168.1.42")] = "A4:CF:12:00:00:01",
+            };
+
+            IReadOnlyDictionary<string, int> counts = LanDiscovery.CountMacAddresses(arp);
+
+            Assert.True(LanDiscovery.IsProxyMac("00:11:22:33:44:55", counts));
+            Assert.False(LanDiscovery.IsProxyMac("A4:CF:12:00:00:01", counts));
+            Assert.False(LanDiscovery.IsProxyMac(null, counts));
+        }
+
+        [Fact]
+        public void AnsweringOnTheLedPortIsEnoughToBePickedAsTheController()
+        {
+            Assert.Equal(92, LanDiscovery.ScoreDevice(null, null, null, false, null, true));
+            Assert.True(LanDiscovery.ScoreDevice(null, null, null, false, null, true) >= LanDiscovery.ControllerScoreThreshold);
+        }
+
+        [Fact]
+        public void ADeviceThatAnnouncedItsNameIsScoredLikeAReverseDnsName()
+        {
+            Assert.Equal(90, LanDiscovery.ScoreDevice(null, null, null, false, "Sync-Box-V1"));
+            Assert.Equal(10, LanDiscovery.ScoreDevice(null, null, null, false, "Living Room TV"));
         }
 
         [Fact]

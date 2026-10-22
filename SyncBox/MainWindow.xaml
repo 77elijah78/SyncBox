@@ -491,7 +491,7 @@
                                 <TextBlock Text="&#x2022;  The serial link always runs at 1,000,000 baud and is never picked by hand."
                                            FontSize="11" Foreground="{StaticResource SyncMutedBrush}"
                                            TextWrapping="Wrap" Margin="0,0,0,6" />
-                                <TextBlock Text="&#x2022;  The Wi-Fi list shows the devices your router knows, with their names. Only devices that answer are shown."
+                                <TextBlock Text="&#x2022;  The Wi-Fi list is built like the router&#39;s client table: a device is listed when it answers a ping or a name question, or when the ARP table has its own MAC. A device without a name shows its MAC instead."
                                            FontSize="11" Foreground="{StaticResource SyncMutedBrush}"
                                            TextWrapping="Wrap" Margin="0,0,0,6" />
                                 <TextBlock Text="&#x2022;  LED layout is set in the LEDS tab: H LEDs along each horizontal edge and V along each vertical edge, so the ring holds 2 x (H + V) LEDs."
@@ -514,7 +514,7 @@
                                            FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
                                            TextWrapping="Wrap" Margin="0,2,0,10" />
                                 <TextBlock Text="Controller missing from the Wi-Fi list" FontWeight="SemiBold" FontSize="11" />
-                                <TextBlock Text="Both devices must be on the same router. A guest network or a VPN can hide them from each other."
+                                <TextBlock Text="Both devices must be on the same router. A guest network, AP isolation or a VPN can hide them from each other."
                                            FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
                                            TextWrapping="Wrap" Margin="0,2,0,10" />
                                 <TextBlock Text="Nothing lights up" FontWeight="SemiBold" FontSize="11" />
