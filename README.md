@@ -64,11 +64,15 @@ With *Find the controller automatically* enabled (the default), connecting over 
    **60**, plain ARP entry **10**.
 
 Devices at or above **80** are picked automatically — the same name-matching rules as the
-serial path, applied to the DHCP host name, where `Sync-Box-V1` matches because it starts
-with `SyncBox` once separators and case are ignored. A device that is merely present in
-the ARP table is never assumed to be the controller; the list shows every device (IP,
-name, vendor) so one can be chosen manually, and choosing one fills *Controller IP*.
-*Scan* runs the same lookup without connecting.
+serial path, applied to the host name, where `Sync-Box-V1` matches because it starts with
+`SyncBox` once separators and case are ignored.
+
+Like a router's client list, only devices that can be recognised are listed: an entry with
+a host name, an answered handshake, Espressif hardware or the gateway itself. Addresses
+that are merely present in the ARP table (proxy-ARP noise on guest and mobile networks)
+are hidden, so the list stays short and every row has a name. Choosing a row fills
+*Controller IP*; *Scan* runs the same lookup without connecting. Name lookups run in
+parallel with a 200 ms timeout and a 2.5 s budget, so a scan finishes in about a second.
 
 Because discovery happens at the MAC/ARP level, a controller whose firmware drops ICMP
 echo requests is still found — that was the case when pinging never saw it. If the list
@@ -158,6 +162,13 @@ behaving like a display instead of stacking two gamma curves.
 Both backends run the same sampler, which clamps every sample coordinate into the
 captured surface, so an off-screen or destroyed target window degrades to full-desktop
 capture instead of reading out of bounds.
+
+## Guide tab
+
+The fourth tab is a short built-in guide: a five-step quick start (power, interface,
+detect/scan, connect, start), a "good to know" list (fixed baud rate, discovery rules, LED
+layout, ACK behaviour, settings persistence) and the three most common fixes (port busy,
+controller missing from Wi-Fi, nothing lights up).
 
 ## Settings
 

@@ -103,11 +103,13 @@ namespace SyncBox.Services
         /// <summary>Score a device needs before Connect picks it without the user choosing.</summary>
         public const int ControllerScoreThreshold = 80;
 
-        private const int ArpSettleMs = 1200;
-        private const int ReplyWindowMs = 700;
-        private const int ResolveTimeoutMs = 350;
-        private const int TcpProbeTimeoutMs = 350;
-        private const int ProbeConcurrency = 16;
+        private const int ArpSettleMs = 600;
+        private const int ReplyWindowMs = 400;
+        private const int ResolveTimeoutMs = 200;
+        private const int TcpProbeTimeoutMs = 300;
+        private const int ProbeConcurrency = 48;
+        private const int IdentifyBudgetMs = 2500;
+        private const int MaxResolvedHosts = 512;
 
         private static readonly string[] VirtualAdapterMarkers =
         {
@@ -179,6 +181,7 @@ namespace SyncBox.Services
 
                 arp = ReadArpTable();
 
+                IReadOnlyCollection<IPAddress> gateways = FindGatewayAddresses();
                 var alive = new HashSet<IPAddress>();
                 foreach (KeyValuePair<IPAddress, string> entry in arp)
                 {
@@ -193,6 +196,22 @@ namespace SyncBox.Services
                     alive.Add(address);
                 }
 
+                // Routers on guest and mobile networks answer ARP for every address, which
+                // makes a whole subnet look "connected": those replies all carry the
+                // gateway's MAC, so they are dropped before any name lookup happens.
+                foreach (IPAddress gateway in gateways)
+                {
+                    if (!arp.TryGetValue(gateway, out string? gatewayMac))
+                    {
+                        continue;
+                    }
+
+                    alive.RemoveWhere(address =>
+                        !address.Equals(gateway) &&
+                        arp.TryGetValue(address, out string? mac) &&
+                        string.Equals(mac, gatewayMac, StringComparison.OrdinalIgnoreCase));
+                }
+
                 if (alive.Count == 0)
                 {
                     return new LanScanResult(
@@ -202,11 +221,18 @@ namespace SyncBox.Services
                         subnetsText);
                 }
 
-                progress?.Report($"Identifying {alive.Count} device(s)...");
-                IReadOnlyList<LanDevice> devices = Identify(alive, arp, replies, port, token);
+                progress?.Report($"Checking the devices on {string.Join(", ", subnetsText)}...");
+                IReadOnlyList<LanDevice> devices = Identify(alive, arp, replies, gateways, port, token);
 
-                string summary = DescribeScan(devices, subnetsText);
-                return new LanScanResult(true, summary, devices, subnetsText);
+                // A router's client list only shows real devices: an address that has a
+                // name, answers the handshake, is Espressif hardware or is the gateway.
+                // Proxy-ARP noise (an address with a MAC and nothing else) stays hidden.
+                IReadOnlyList<LanDevice> listed = devices
+                    .Where(device => IsIdentified(device, gateways))
+                    .ToList();
+
+                string summary = DescribeScan(listed, subnetsText);
+                return new LanScanResult(true, summary, listed, subnetsText);
             }
             catch (OperationCanceledException)
             {
@@ -469,36 +495,95 @@ namespace SyncBox.Services
             string where = subnets.Count == 0 ? "the local network" : string.Join(", ", subnets);
             if (devices.Count == 0)
             {
-                return $"No devices answered on {where}.";
+                return $"No devices found on {where}.";
             }
 
             LanDevice? best = ChooseControllerDevice(devices, null);
-            string found = $"{devices.Count} device(s) on {where}.";
             return best is null
-                ? found + " None of them obviously identifies as a SyncBox; pick the controller from the list."
-                : found + $" The controller is probably {best.DisplayName}.";
+                ? $"{devices.Count} device(s) on {where}."
+                : $"{devices.Count} device(s) on {where}. Controller: {best.DisplayName}.";
+        }
+
+        /// <summary>
+        /// True when the entry carries something a person can recognise, which is what a
+        /// router's client list shows. Bare addresses are dropped.
+        /// </summary>
+        public static bool IsIdentified(LanDevice device, IReadOnlyCollection<IPAddress> gateways) =>
+            device.Handshake is not null ||
+            device.HostName is not null ||
+            device.Vendor is not null ||
+            gateways.Contains(device.Address);
+
+        public static IReadOnlyCollection<IPAddress> FindGatewayAddresses()
+        {
+            var gateways = new HashSet<IPAddress>();
+            try
+            {
+                foreach (NetworkInterface adapter in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (adapter.OperationalStatus != OperationalStatus.Up ||
+                        adapter.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+                    {
+                        continue;
+                    }
+
+                    foreach (GatewayIPAddressInformation gateway in adapter.GetIPProperties().GatewayAddresses)
+                    {
+                        if (gateway.Address.AddressFamily == AddressFamily.InterNetwork &&
+                            !gateway.Address.Equals(IPAddress.Any))
+                        {
+                            gateways.Add(gateway.Address);
+                        }
+                    }
+                }
+            }
+            catch (NetworkInformationException)
+            {
+            }
+
+            return gateways;
         }
 
         private static IReadOnlyList<LanDevice> Identify(
             IReadOnlyCollection<IPAddress> addresses,
             IReadOnlyDictionary<IPAddress, string> arp,
             IReadOnlyDictionary<IPAddress, string> replies,
+            IReadOnlyCollection<IPAddress> gateways,
             int port,
             CancellationToken token)
         {
             var devices = new List<LanDevice>();
             using var throttle = new SemaphoreSlim(ProbeConcurrency);
+
+            // Name lookups are the slow part of the scan, so they run under their own
+            // budget: whatever answered in time is kept, the rest is reported without a
+            // name instead of holding the whole scan hostage.
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
+            budget.CancelAfter(IdentifyBudgetMs);
+            CancellationToken identifyToken = budget.Token;
+
             var tasks = new List<Task>();
+            int candidates = 0;
 
             foreach (IPAddress address in addresses)
             {
+                if (candidates++ >= MaxResolvedHosts)
+                {
+                    break;
+                }
+
                 token.ThrowIfCancellationRequested();
                 tasks.Add(Task.Run(async () =>
                 {
-                    await throttle.WaitAsync(token).ConfigureAwait(false);
+                    await throttle.WaitAsync(identifyToken).ConfigureAwait(false);
                     try
                     {
-                        string? hostName = await ResolveHostNameAsync(address, token).ConfigureAwait(false);
+                        string? hostName = await ResolveHostNameAsync(address, identifyToken).ConfigureAwait(false);
+                        if (hostName is null && gateways.Contains(address))
+                        {
+                            // The router rarely answers reverse DNS; give it a usable name.
+                            hostName = "Router";
+                        }
                         replies.TryGetValue(address, out string? handshake);
                         arp.TryGetValue(address, out string? mac);
 
@@ -507,7 +592,7 @@ namespace SyncBox.Services
                         bool portOpen = handshake is null &&
                                         port > 0 &&
                                         IsEspressifOui(mac) &&
-                                        await ProbeTcpAsync(address, port, token).ConfigureAwait(false);
+                                        await ProbeTcpAsync(address, port, identifyToken).ConfigureAwait(false);
 
                         var device = new LanDevice(
                             address,
@@ -531,7 +616,7 @@ namespace SyncBox.Services
 
             try
             {
-                Task.WaitAll(tasks.ToArray(), token);
+                Task.WaitAll(tasks.ToArray(), identifyToken);
             }
             catch (OperationCanceledException)
             {

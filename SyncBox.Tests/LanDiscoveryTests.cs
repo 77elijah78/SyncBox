@@ -200,21 +200,50 @@ namespace SyncBox.Tests
         public void TheScanSummaryNamesTheLikelyController()
         {
             string empty = LanDiscovery.DescribeScan(Array.Empty<LanDevice>(), new[] { "192.168.1.0/24" });
-            Assert.Contains("No devices answered on 192.168.1.0/24", empty, StringComparison.Ordinal);
+            Assert.Contains("No devices found on 192.168.1.0/24", empty, StringComparison.Ordinal);
 
             var devices = new List<LanDevice>
             {
                 new(IPAddress.Parse("192.168.1.42"), "Sync-Box-V1", null, null, null, false),
             };
             string found = LanDiscovery.DescribeScan(devices, new[] { "192.168.1.0/24" });
-            Assert.Contains("probably 192.168.1.42 - Sync-Box-V1", found, StringComparison.Ordinal);
+            Assert.Contains("Controller: 192.168.1.42 - Sync-Box-V1", found, StringComparison.Ordinal);
 
             var unclear = new List<LanDevice>
             {
                 new(IPAddress.Parse("192.168.1.5"), "printer", null, null, null, false),
             };
             string unknown = LanDiscovery.DescribeScan(unclear, new[] { "192.168.1.0/24" });
-            Assert.Contains("pick the controller from the list", unknown, StringComparison.Ordinal);
+            Assert.Contains("1 device(s) on 192.168.1.0/24", unknown, StringComparison.Ordinal);
+            Assert.DoesNotContain("Controller:", unknown, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void OnlyDevicesThatIdentifyThemselvesAreListed()
+        {
+            var gateway = IPAddress.Parse("192.168.1.1");
+            var gateways = new[] { gateway };
+
+            var named = new LanDevice(IPAddress.Parse("192.168.1.42"), "Sync-Box-V1", null, null, null, false);
+            var handshake = new LanDevice(IPAddress.Parse("192.168.1.43"), null, null, null, "Sync Box V1.0", false);
+            var espressif = new LanDevice(IPAddress.Parse("192.168.1.44"), null, "24:0A:C4:11:22:33", "Espressif", null, false);
+            var router = new LanDevice(gateway, "Router", "00:11:22:33:44:55", null, null, false);
+            var bare = new LanDevice(IPAddress.Parse("192.168.1.99"), null, "AA:BB:CC:DD:EE:FF", null, null, false);
+
+            Assert.True(LanDiscovery.IsIdentified(named, gateways));
+            Assert.True(LanDiscovery.IsIdentified(handshake, gateways));
+            Assert.True(LanDiscovery.IsIdentified(espressif, gateways));
+            Assert.True(LanDiscovery.IsIdentified(router, gateways));
+            Assert.False(LanDiscovery.IsIdentified(bare, gateways));
+        }
+
+        [Fact]
+        public void GatewayAddressesComeBackWithoutDuplicates()
+        {
+            IReadOnlyCollection<IPAddress> gateways = LanDiscovery.FindGatewayAddresses();
+
+            Assert.NotNull(gateways);
+            Assert.Equal(gateways.Count, gateways.Distinct().Count());
         }
 
         [Fact]

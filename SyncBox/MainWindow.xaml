@@ -20,8 +20,8 @@
         <Style x:Key="Card" TargetType="Border">
             <Setter Property="Background" Value="{StaticResource SyncSurfaceBrush}" />
             <Setter Property="CornerRadius" Value="14" />
-            <Setter Property="Padding" Value="18" />
-            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="Padding" Value="20,18" />
+            <Setter Property="Margin" Value="0,0,0,12" />
             <Setter Property="BorderBrush" Value="{StaticResource SyncBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
         </Style>
@@ -195,9 +195,11 @@
                                                  ToolTip="Only needed when that network is secured. Saved in settings.json on this PC." />
                                 </StackPanel>
 
-                                <Button Content="{Binding ConnectButtonText}" Height="46" Margin="0,16,0,0"
+                                <Button Content="{Binding ConnectButtonText}" Height="50" Margin="0,18,0,0"
+                                        FontSize="14" FontWeight="Black"
                                         Command="{Binding ToggleConnectionCommand}"
-                                        Background="{StaticResource SyncAccentBrush}" />
+                                        Background="{StaticResource SyncAccentGradient}"
+                                        BorderBrush="{StaticResource SyncAccentBrush}" />
                             </StackPanel>
                         </Border>
 
@@ -281,12 +283,25 @@
                         </Border>
 
                         <UniformGrid Columns="2" Margin="0,4,0,12">
-                            <Button Content="START" Height="58" Margin="0,0,5,0"
+                            <Button Height="60" Margin="0,0,5,0"
                                     Background="{StaticResource SyncSuccessBrush}" Foreground="#04240F"
-                                    FontSize="15" FontWeight="Black" Command="{Binding StartCommand}" />
-                            <Button Content="STOP" Height="58" Margin="5,0,0,0"
+                                    FontSize="15" FontWeight="Black" Command="{Binding StartCommand}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#x25B6;" FontSize="15" VerticalAlignment="Center"
+                                               Foreground="#04240F" />
+                                    <TextBlock Text="START" Margin="9,0,0,0" VerticalAlignment="Center"
+                                               Foreground="#04240F" FontWeight="Black" />
+                                </StackPanel>
+                            </Button>
+                            <Button Height="60" Margin="5,0,0,0"
                                     Background="{StaticResource SyncDangerBrush}"
-                                    FontSize="15" Command="{Binding StopCommand}" />
+                                    FontSize="15" Command="{Binding StopCommand}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#x25A0;" FontSize="13" VerticalAlignment="Center" Foreground="White" />
+                                    <TextBlock Text="STOP" Margin="9,0,0,0" VerticalAlignment="Center"
+                                               Foreground="White" FontWeight="SemiBold" />
+                                </StackPanel>
+                            </Button>
                         </UniformGrid>
 
                     </StackPanel>
@@ -380,6 +395,132 @@
                             <StackPanel>
                                 <TextBlock Text="SETTINGS" Style="{StaticResource ProLabel}" />
                                 <Button Content="Save settings" Command="{Binding PersistSettingsCommand}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="GUIDE" Style="{StaticResource SyncTabItem}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
+                    <StackPanel>
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="QUICK START" Style="{StaticResource ProLabel}" />
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Style="{StaticResource StepBadge}">
+                                        <TextBlock Text="1" Style="{StaticResource StepText}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="Power the controller" FontWeight="SemiBold" />
+                                        <TextBlock Text="Plug it into USB, or make sure it is switched on and joined to the same router as this PC." FontSize="11"
+                                                   Foreground="{StaticResource SyncFaintBrush}"
+                                                   TextWrapping="Wrap" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Style="{StaticResource StepBadge}">
+                                        <TextBlock Text="2" Style="{StaticResource StepText}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="Choose the interface" FontWeight="SemiBold" />
+                                        <TextBlock Text="USB SERIAL for the cable, WI-FI / UDP for the network." FontSize="11"
+                                                   Foreground="{StaticResource SyncFaintBrush}"
+                                                   TextWrapping="Wrap" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Style="{StaticResource StepBadge}">
+                                        <TextBlock Text="3" Style="{StaticResource StepText}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="Detect or Scan" FontWeight="SemiBold" />
+                                        <TextBlock Text="USB: press Detect, the dot turns green when the controller answers. Wi-Fi: press Scan to list the devices on your router." FontSize="11"
+                                                   Foreground="{StaticResource SyncFaintBrush}"
+                                                   TextWrapping="Wrap" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Style="{StaticResource StepBadge}">
+                                        <TextBlock Text="4" Style="{StaticResource StepText}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="Connect" FontWeight="SemiBold" />
+                                        <TextBlock Text="The CONNECT button opens the link. The controller is found automatically, nothing has to be typed." FontSize="11"
+                                                   Foreground="{StaticResource SyncFaintBrush}"
+                                                   TextWrapping="Wrap" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Style="{StaticResource StepBadge}">
+                                        <TextBlock Text="5" Style="{StaticResource StepText}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="Start" FontWeight="SemiBold" />
+                                        <TextBlock Text="Press START and the LEDs follow the screen. STOP ends the stream, DISCONNECT closes the link." FontSize="11"
+                                                   Foreground="{StaticResource SyncFaintBrush}"
+                                                   TextWrapping="Wrap" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="GOOD TO KNOW" Style="{StaticResource ProLabel}" />
+                                <TextBlock Text="&#x2022;  The serial link always runs at 1,000,000 baud and is never picked by hand."
+                                           FontSize="11" Foreground="{StaticResource SyncMutedBrush}"
+                                           TextWrapping="Wrap" Margin="0,0,0,6" />
+                                <TextBlock Text="&#x2022;  The Wi-Fi list shows the devices your router knows, with their names. Only devices that answer are shown."
+                                           FontSize="11" Foreground="{StaticResource SyncMutedBrush}"
+                                           TextWrapping="Wrap" Margin="0,0,0,6" />
+                                <TextBlock Text="&#x2022;  LED layout is set in the LEDS tab: H LEDs along each horizontal edge and V along each vertical edge, so the ring holds 2 x (H + V) LEDs."
+                                           FontSize="11" Foreground="{StaticResource SyncMutedBrush}"
+                                           TextWrapping="Wrap" Margin="0,0,0,6" />
+                                <TextBlock Text="&#x2022;  With ACK enabled the controller answers every frame with the letter O (or a binary AA 55 02 frame); the wait is 12 ms per frame."
+                                           FontSize="11" Foreground="{StaticResource SyncMutedBrush}"
+                                           TextWrapping="Wrap" Margin="0,0,0,6" />
+                                <TextBlock Text="&#x2022;  Settings save themselves on connect, disconnect and close. Tuning values can be reset in the TUNING tab."
+                                           FontSize="11" Foreground="{StaticResource SyncMutedBrush}"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="IF SOMETHING DOES NOT WORK" Style="{StaticResource ProLabel}" />
+                                <TextBlock Text="No controller on USB" FontWeight="SemiBold" FontSize="11" />
+                                <TextBlock Text="Close other programs that hold the port (Arduino IDE, serial monitors), then press Detect again."
+                                           FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
+                                           TextWrapping="Wrap" Margin="0,2,0,10" />
+                                <TextBlock Text="Controller missing from the Wi-Fi list" FontWeight="SemiBold" FontSize="11" />
+                                <TextBlock Text="Both devices must be on the same router. A guest network or a VPN can hide them from each other."
+                                           FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
+                                           TextWrapping="Wrap" Margin="0,2,0,10" />
+                                <TextBlock Text="Nothing lights up" FontWeight="SemiBold" FontSize="11" />
+                                <TextBlock Text="Check that the LED count in the LEDS tab matches the strip, then raise the brightness in TUNING."
+                                           FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
+                                           TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                         </Border>
                     </StackPanel>

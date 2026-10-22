@@ -26,7 +26,7 @@ namespace SyncBox.ViewModels
         private static readonly TimeSpan ScanBudget = TimeSpan.FromSeconds(10);
         private static readonly TimeSpan WifiScanBudget = TimeSpan.FromSeconds(15);
         private static readonly TimeSpan WifiJoinBudget = TimeSpan.FromSeconds(40);
-        private static readonly TimeSpan LanScanBudget = TimeSpan.FromSeconds(60);
+        private static readonly TimeSpan LanScanBudget = TimeSpan.FromSeconds(12);
 
         private readonly SettingsService _settingsService;
         private readonly LedSampler _sampler = new();

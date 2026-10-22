@@ -53,11 +53,32 @@
         </Setter>
     </Style>
 
+    <!-- Section header: a short accent bar on the left, no extra markup needed. -->
     <Style x:Key="ProLabel" TargetType="{x:Type TextBlock}">
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontSize" Value="12" />
         <Setter Property="FontWeight" Value="Bold" />
         <Setter Property="Foreground" Value="{StaticResource SyncMutedBrush}" />
-        <Setter Property="Margin" Value="0,0,0,10" />
+        <Setter Property="BorderBrush" Value="{StaticResource SyncAccentBrush}" />
+        <Setter Property="BorderThickness" Value="3,0,0,0" />
+        <Setter Property="Padding" Value="9,0,0,0" />
+        <Setter Property="Margin" Value="0,0,0,12" />
+    </Style>
+
+    <!-- Circular step marker used by the guide tab. -->
+    <Style x:Key="StepBadge" TargetType="{x:Type Border}">
+        <Setter Property="Width" Value="22" />
+        <Setter Property="Height" Value="22" />
+        <Setter Property="CornerRadius" Value="11" />
+        <Setter Property="Background" Value="{StaticResource SyncAccentBrush}" />
+        <Setter Property="VerticalAlignment" Value="Top" />
+    </Style>
+
+    <Style x:Key="StepText" TargetType="{x:Type TextBlock}">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
 
     <Style x:Key="FieldLabel" TargetType="{x:Type TextBlock}">

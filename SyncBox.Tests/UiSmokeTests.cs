@@ -56,9 +56,9 @@ namespace SyncBox.Tests
                     {
                         failures.Add("No TabControl was found in the visual tree.");
                     }
-                    else if (tabs.Items.Count != 3)
+                    else if (tabs.Items.Count != 4)
                     {
-                        failures.Add($"Expected 3 tabs, found {tabs.Items.Count}.");
+                        failures.Add($"Expected 4 tabs (dashboard, tuning, LEDs, guide), found {tabs.Items.Count}.");
                     }
 
                     if (FindDescendant<ScrollBar>(window) is null)
