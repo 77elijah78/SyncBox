@@ -126,11 +126,20 @@ Every frame is a fixed-overhead envelope followed by RGB triplets, in LED order.
 
 Frame size is `5 + 3 * count + 1` bytes; the running total is shown in the LEDS tab.
 
-An optional ACK mode is available. When enabled the app waits up to 12 ms for a
-well-formed `0xAA 0x55 0x02` frame after each pixel frame and disables itself after
-eight consecutive misses. Firmware only needs to answer with a valid envelope, for
-example `AA 55 02 00 00 <crc>`. ACK mode costs frame rate, so it is off by default and
-unavailable over UDP.
+An optional ACK mode is available. When enabled the app waits up to 12 ms after each
+pixel frame and disables itself after eight consecutive misses.
+
+The controller can answer in either of two ways:
+
+| Reply | Bytes | Notes |
+| --- | --- | --- |
+| Plain letter | `4F` (`O`) | One ASCII character, no header and no CRC. This is the simple option. |
+| Binary frame | `AA 55 02 00 00 <crc>` | A normal envelope with opcode `0x02`, CRC included. |
+
+Lowercase `o` (`6F`) is accepted as well. The letter is looked for directly in the bytes
+received from the device, which is safe because the controller never sends pixels back;
+binary frames are still parsed by the same reader as before. ACK mode costs frame rate,
+so it is off by default and unavailable over UDP.
 
 The frame rate limit (60 FPS by default, 0 for unlimited) is always applied, so the
 capture loop never floods the link or pegs a core when no ACK is used.

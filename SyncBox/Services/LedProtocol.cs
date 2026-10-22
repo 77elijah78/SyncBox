@@ -41,7 +41,33 @@ namespace SyncBox.Services
         public const int Overhead = HeaderSize + CrcSize;
         public const int MaxFrameBytes = 4096;
 
+        /// <summary>
+        /// The plain-English acknowledgement a controller may send back after a pixel
+        /// frame: the single uppercase letter O (ASCII 0x4F). It is deliberately not a
+        /// binary frame, so firmware only has to write one character.
+        /// </summary>
+        public const byte TextAck = (byte)'O';
+
         public static int FrameSize(int ledCount) => HeaderSize + (ledCount * 3) + CrcSize;
+
+        /// <summary>
+        /// Counts the text acknowledgements in a chunk of bytes received from the device.
+        /// The byte is looked for directly, because it never forms part of a binary frame
+        /// travelling in this direction (the device only answers, it never sends pixels).
+        /// </summary>
+        public static int CountTextAcks(ReadOnlySpan<byte> data)
+        {
+            int count = 0;
+            foreach (byte value in data)
+            {
+                if (value == TextAck || value == (byte)'o')
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
 
         public static byte[] CreateFrame(LedFrameKind kind, int ledCount, ReadOnlySpan<byte> pixels)
         {

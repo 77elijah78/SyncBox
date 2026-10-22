@@ -796,6 +796,7 @@ namespace SyncBox.ViewModels
             if (transport is SerialTransport serial)
             {
                 serial.FrameReceived += OnDeviceFrame;
+                serial.TextAckReceived += OnTextAck;
             }
 
             DisposeTransport();
@@ -886,6 +887,14 @@ namespace SyncBox.ViewModels
                 return;
             }
 
+            ReleaseAckWait();
+        }
+
+        /// <summary>The controller answered with the plain letter O instead of a frame.</summary>
+        private void OnTextAck() => ReleaseAckWait();
+
+        private void ReleaseAckWait()
+        {
             try
             {
                 _ackSignal.Release();
@@ -1056,7 +1065,7 @@ namespace SyncBox.ViewModels
                                     Post(() =>
                                     {
                                         RequireAck = false;
-                                        Message("The controller stopped acknowledging frames, so ACK waiting was turned off.", isError: true);
+                                        Message("The controller stopped acknowledging frames, so ACK waiting was turned off. Expected the letter O after every frame.", isError: true);
                                     });
                                 }
                             }
@@ -1295,6 +1304,7 @@ namespace SyncBox.ViewModels
             if (transport is SerialTransport serial)
             {
                 serial.FrameReceived -= OnDeviceFrame;
+                serial.TextAckReceived -= OnTextAck;
             }
 
             transport?.Dispose();

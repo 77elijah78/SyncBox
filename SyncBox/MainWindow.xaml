@@ -319,7 +319,7 @@
 
                                 <CheckBox Content="Wait for a device ACK after every frame"
                                           IsChecked="{Binding RequireAck}" Margin="0,8,0,0" />
-                                <TextBlock Text="Leave this off unless the controller firmware sends 0xAA 0x55 ACK frames. Each ACK is waited on for at most 12 ms."
+                                <TextBlock Text="The controller may answer with the single letter O (ASCII 0x4F) or a binary AA 55 02 frame. Each ACK is waited on for at most 12 ms; after 8 misses the option turns itself off."
                                            FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
                                            TextWrapping="Wrap" Margin="0,8,0,0" />
                             </StackPanel>

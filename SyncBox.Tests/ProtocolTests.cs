@@ -135,6 +135,34 @@ namespace SyncBox.Tests
             Assert.Equal(115200, LedLimits.ClampBaud(12345));
         }
 
+        [Fact]
+        public void TheTextAckIsTheUppercaseLetterO()
+        {
+            Assert.Equal(0x4F, LedProtocol.TextAck);
+            Assert.Equal((byte)'O', LedProtocol.TextAck);
+        }
+
+        [Fact]
+        public void OneTextAckPerReceivedLetterIsCounted()
+        {
+            Assert.Equal(1, LedProtocol.CountTextAcks(new byte[] { 0x4F }));
+            Assert.Equal(2, LedProtocol.CountTextAcks(new byte[] { 0x4F, 0x00, 0x4F }));
+            Assert.Equal(0, LedProtocol.CountTextAcks(Array.Empty<byte>()));
+        }
+
+        [Fact]
+        public void LowercaseOIsAcceptedToo()
+        {
+            Assert.Equal(1, LedProtocol.CountTextAcks(new byte[] { 0x6F }));
+        }
+
+        [Fact]
+        public void OtherLettersAndBinaryFramesAreNotMistakenForATextAck()
+        {
+            Assert.Equal(0, LedProtocol.CountTextAcks(new byte[] { 0x4B, 0x4F + 1, 0x00 }));
+            Assert.Equal(0, LedProtocol.CountTextAcks(new byte[] { 0xAA, 0x55, 0x02, 0x00, 0x00, 0x12 }));
+        }
+
         [Theory]
         [InlineData("192.168.4.1", true)]
         [InlineData("abc", false)]
