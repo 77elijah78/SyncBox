@@ -56,9 +56,9 @@ namespace SyncBox.Tests
                     {
                         failures.Add("No TabControl was found in the visual tree.");
                     }
-                    else if (tabs.Items.Count != 3)
+                    else if (tabs.Items.Count != 4)
                     {
-                        failures.Add($"Expected 3 tabs, found {tabs.Items.Count}.");
+                        failures.Add($"Expected 4 tabs (dashboard, tuning, LEDs, guide), found {tabs.Items.Count}.");
                     }
 
                     if (FindDescendant<ScrollBar>(window) is null)
@@ -85,6 +85,29 @@ namespace SyncBox.Tests
                         failures.Add("The Detect device button is not bound to a command.");
                     }
 
+                    if (window.FindName("ScanWifiButton") is not Button scanButton)
+                    {
+                        failures.Add("The Wi-Fi Scan button is missing from the interface card.");
+                    }
+                    else if (scanButton.Command is null)
+                    {
+                        failures.Add("The Wi-Fi Scan button is not bound to a command.");
+                    }
+
+                    if (window.FindName("FindNetworkDevicesButton") is not Button findButton)
+                    {
+                        failures.Add("The network Scan button is missing from the interface card.");
+                    }
+                    else if (findButton.Command is null)
+                    {
+                        failures.Add("The network Scan button is not bound to a command.");
+                    }
+
+                    if (window.FindName("WifiPasswordBox") is not PasswordBox)
+                    {
+                        failures.Add("The Wi-Fi password box is missing from the interface card.");
+                    }
+
                     if (window.DataContext is not MainViewModel viewModel)
                     {
                         failures.Add("The data context is not a MainViewModel.");
@@ -107,7 +130,6 @@ namespace SyncBox.Tests
                         viewModel.Gamma = -3.0;
                         viewModel.AverageSize = 999;
                         viewModel.TargetFps = 9999;
-                        viewModel.SelectedBaud = 12345;
 
                         Check(viewModel.HorizontalLedCount == 1, "HorizontalLedCount was not clamped.", failures);
                         Check(viewModel.VerticalLedCount == Services.LedLimits.MaxLedCount, "VerticalLedCount was not clamped.", failures);
@@ -116,10 +138,16 @@ namespace SyncBox.Tests
                         Check(viewModel.Gamma == 0.2, "Gamma was not clamped.", failures);
                         Check(viewModel.AverageSize == 5, "AverageSize was not clamped.", failures);
                         Check(viewModel.TargetFps == 240, "TargetFps was not clamped.", failures);
-                        Check(viewModel.SelectedBaud == 115200, "Baud rate was not clamped.", failures);
+                        Check(Services.LedLimits.FixedBaudRate == 1000000, "The baud rate is not pinned to 1,000,000.", failures);
+                        Check(viewModel.ControllerStatusText.Length > 0, "The controller status line has no text.", failures);
+                        Check(!viewModel.IsControllerDetected, "A controller should not be reported before detection.", failures);
                         Check(viewModel.LedPreviewItems.Count == viewModel.TotalLedCount, "Preview was not rebuilt for the new layout.", failures);
                         Check(viewModel.FrameByteSize == Services.LedProtocol.FrameSize(viewModel.TotalLedCount), "Frame byte size does not match the protocol.", failures);
                         Check(viewModel.SettingsPath.Length > 0, "No settings path was resolved.", failures);
+                        Check(viewModel.WifiStatusText.Length > 0, "The Wi-Fi status line has no text.", failures);
+                        Check(viewModel.NetworkStatusText.Length > 0, "The network status line has no text.", failures);
+                        Check(viewModel.SelectedLanDevice is null || viewModel.LanDevices.Contains(viewModel.SelectedLanDevice!), "The selected network device is not in the discovered list.", failures);
+                        Check(viewModel.SelectedWifiNetwork is null || viewModel.AvailableWifiNetworks.Contains(viewModel.SelectedWifiNetwork!), "The selected Wi-Fi network is not in the scanned list.", failures);
 
                         viewModel.Dispose();
                     }

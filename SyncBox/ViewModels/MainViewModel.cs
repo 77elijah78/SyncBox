@@ -24,6 +24,9 @@ namespace SyncBox.ViewModels
         private const int CaptureRetryDelayMs = 5;
         private static readonly TimeSpan ScanProbeTimeout = TimeSpan.FromMilliseconds(600);
         private static readonly TimeSpan ScanBudget = TimeSpan.FromSeconds(10);
+        private static readonly TimeSpan WifiScanBudget = TimeSpan.FromSeconds(15);
+        private static readonly TimeSpan WifiJoinBudget = TimeSpan.FromSeconds(40);
+        private static readonly TimeSpan LanScanBudget = TimeSpan.FromSeconds(12);
 
         private readonly SettingsService _settingsService;
         private readonly LedSampler _sampler = new();
@@ -36,6 +39,7 @@ namespace SyncBox.ViewModels
         private CancellationTokenSource? _cancellation;
         private Task? _loop;
         private bool _disposed;
+        private bool _initialized;
         private long _lastNoteMs;
         private bool _ackAutoDisabled;
 
@@ -73,15 +77,46 @@ namespace SyncBox.ViewModels
         private bool requireAck;
 
         [ObservableProperty]
-        private bool autoDetectDevice = true;
+        private bool autoDetectWifi = true;
+
+        [ObservableProperty]
+        private bool autoFindOnNetwork = true;
+
+        [ObservableProperty]
+        private string wifiPassword = string.Empty;
+
+        [ObservableProperty]
+        private string wifiStatusText = "Scan to list the Wi-Fi networks in range.";
+
+        [ObservableProperty]
+        private WifiNetwork? selectedWifiNetwork;
+
+        [ObservableProperty]
+        private string networkStatusText = "Scan to list the devices connected to your router.";
+
+        [ObservableProperty]
+        private LanDevice? selectedLanDevice;
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(ToggleConnectionCommand))]
         [NotifyCanExecuteChangedFor(nameof(DetectDeviceCommand))]
+        [NotifyCanExecuteChangedFor(nameof(ScanWifiCommand))]
+        [NotifyCanExecuteChangedFor(nameof(FindNetworkDevicesCommand))]
+        private bool isNetworkBusy;
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(ToggleConnectionCommand))]
+        [NotifyCanExecuteChangedFor(nameof(DetectDeviceCommand))]
+        [NotifyCanExecuteChangedFor(nameof(ScanWifiCommand))]
+        [NotifyCanExecuteChangedFor(nameof(FindNetworkDevicesCommand))]
         private bool isDetecting;
 
         [ObservableProperty]
-        private string deviceVersionText = "No controller detected yet";
+        [NotifyPropertyChangedFor(nameof(ControllerStatusText))]
+        private bool isControllerDetected;
+
+        [ObservableProperty]
+        private string deviceVersionText = string.Empty;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(TotalLedCount))]
@@ -95,9 +130,6 @@ namespace SyncBox.ViewModels
 
         [ObservableProperty]
         private string comPort = string.Empty;
-
-        [ObservableProperty]
-        private int selectedBaud = 1000000;
 
         [ObservableProperty]
         private string ipAddress = "192.168.4.1";
@@ -158,28 +190,46 @@ namespace SyncBox.ViewModels
             _settingsService = settingsService;
             _ownProcessId = Environment.ProcessId;
 
-            BaudRates = new ObservableCollection<int>
-            {
-                9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 921600, 1000000, 1500000, 2000000
-            };
-            AvailablePorts = new ObservableCollection<string>();
+            LanDevices = new ObservableCollection<LanDevice>();
+            AvailableWifiNetworks = new ObservableCollection<WifiNetwork>();
             ActiveWindows = new ObservableCollection<WindowInfo>();
             LedPreviewItems = new ObservableCollection<LedPreviewItem>();
 
             ApplySettings(_settingsService.Load());
             _sampler.Configure(HorizontalLedCount, VerticalLedCount);
             RebuildPreview();
-            SyncPortList();
             RefreshWindows();
+            _initialized = true;
+
+            // Populate the network list before the user presses Connect, exactly like the
+            // serial port list is filled at startup. Only when a UI synchronization
+            // context exists, so the awaited scan resumes on the thread that owns the
+            // bound properties (a view model built on a bare thread has none).
+            if (UseWifi && SynchronizationContext.Current is not null)
+            {
+                if (AutoFindOnNetwork)
+                {
+                    _ = FindNetworkDevicesCommand.ExecuteAsync(null);
+                }
+
+                if (AutoDetectWifi)
+                {
+                    _ = ScanWifiAsync();
+                }
+            }
         }
 
-        public ObservableCollection<int> BaudRates { get; }
+        public ObservableCollection<LanDevice> LanDevices { get; }
 
-        public ObservableCollection<string> AvailablePorts { get; }
+        public ObservableCollection<WifiNetwork> AvailableWifiNetworks { get; }
 
         public ObservableCollection<WindowInfo> ActiveWindows { get; }
 
         public ObservableCollection<LedPreviewItem> LedPreviewItems { get; }
+
+        public bool HasWifiNetworks => AvailableWifiNetworks.Count > 0;
+
+        public bool HasLanDevices => LanDevices.Count > 0;
 
         public int TotalLedCount => (HorizontalLedCount + VerticalLedCount) * 2;
 
@@ -191,9 +241,19 @@ namespace SyncBox.ViewModels
 
         public string TargetFpsText => TargetFps <= 0 ? "Unlimited" : TargetFps + " FPS";
 
+        public string ControllerStatusText => !IsControllerDetected
+            ? "No controller found"
+            : string.IsNullOrWhiteSpace(ComPort)
+                ? "Controller detected"
+                : $"Sync Box on {ComPort}";
+
         public bool CanStart() => IsConnected && !IsStreaming && !IsBusy;
 
         public bool CanStop() => IsStreaming;
+
+        public bool CanScanWifi() => !IsNetworkBusy && !IsDetecting;
+
+        public bool CanFindNetworkDevices() => !IsNetworkBusy && !IsDetecting;
 
         partial void OnHorizontalLedCountChanged(int value)
         {
@@ -297,18 +357,27 @@ namespace SyncBox.ViewModels
             }
         }
 
-        partial void OnSelectedBaudChanged(int value)
+        partial void OnIsCinematicModeChanged(bool value) => _render.Cinematic = value;
+
+        partial void OnComPortChanged(string value) => OnPropertyChanged(nameof(ControllerStatusText));
+
+        partial void OnSelectedWindowChanged(WindowInfo? value) => _sampler.RequestReset();
+
+        partial void OnWifiPasswordChanged(string value)
         {
-            int clamped = LedLimits.ClampBaud(value);
-            if (clamped != value)
+            if (value.Length > 128)
             {
-                SelectedBaud = clamped;
+                WifiPassword = value[..128];
             }
         }
 
-        partial void OnIsCinematicModeChanged(bool value) => _render.Cinematic = value;
-
-        partial void OnSelectedWindowChanged(WindowInfo? value) => _sampler.RequestReset();
+        partial void OnSelectedLanDeviceChanged(LanDevice? value)
+        {
+            if (value is not null)
+            {
+                IpAddress = value.AddressText;
+            }
+        }
 
         partial void OnUseWifiChanged(bool value)
         {
@@ -316,6 +385,21 @@ namespace SyncBox.ViewModels
             {
                 RequireAck = false;
                 Message("UDP has no acknowledgement channel, so ACK waiting was disabled.");
+            }
+
+            if (!value || !_initialized || IsConnected || IsNetworkBusy || IsDetecting)
+            {
+                return;
+            }
+
+            if (AutoFindOnNetwork)
+            {
+                _ = FindNetworkDevicesCommand.ExecuteAsync(null);
+            }
+
+            if (AutoDetectWifi)
+            {
+                _ = ScanWifiAsync();
             }
         }
 
@@ -337,11 +421,12 @@ namespace SyncBox.ViewModels
             CaptureWholeDesktop = settings.CaptureWholeDesktop;
             IsCinematicMode = settings.IsCinematicMode;
             RequireAck = settings.RequireAck;
-            AutoDetectDevice = settings.AutoDetectDevice;
+            AutoDetectWifi = settings.AutoDetectWifi;
+            AutoFindOnNetwork = settings.AutoFindOnNetwork;
+            WifiPassword = settings.WifiPassword;
             HorizontalLedCount = LedLimits.Clamp(settings.HorizontalLedCount);
             VerticalLedCount = LedLimits.Clamp(settings.VerticalLedCount);
             ComPort = settings.ComPort;
-            SelectedBaud = LedLimits.ClampBaud(settings.BaudRate);
             IpAddress = settings.IpAddress;
             Port = LedLimits.IsValidPort(settings.Port) ? settings.Port : 1234;
             GlobalBrightness = Math.Clamp(settings.Brightness, 0.0, 1.0);
@@ -360,11 +445,13 @@ namespace SyncBox.ViewModels
             CaptureWholeDesktop = CaptureWholeDesktop,
             IsCinematicMode = IsCinematicMode,
             RequireAck = RequireAck,
-            AutoDetectDevice = AutoDetectDevice,
+            AutoDetectWifi = AutoDetectWifi,
+            AutoFindOnNetwork = AutoFindOnNetwork,
+            WifiPassword = WifiPassword,
             HorizontalLedCount = HorizontalLedCount,
             VerticalLedCount = VerticalLedCount,
             ComPort = ComPort,
-            BaudRate = SelectedBaud,
+            BaudRate = LedLimits.FixedBaudRate,
             IpAddress = IpAddress,
             Port = Port,
             Brightness = GlobalBrightness,
@@ -422,32 +509,6 @@ namespace SyncBox.ViewModels
             });
         }
 
-        [RelayCommand]
-        private void RefreshSerialPorts()
-        {
-            SyncPortList();
-            Message($"{AvailablePorts.Count} serial port(s) detected.");
-        }
-
-        private void SyncPortList()
-        {
-            IReadOnlyList<string> ports = SerialTransport.AvailablePorts();
-            Post(() =>
-            {
-                string current = ComPort;
-                AvailablePorts.Clear();
-                foreach (string name in ports)
-                {
-                    AvailablePorts.Add(name);
-                }
-
-                if (!string.IsNullOrWhiteSpace(current) && !AvailablePorts.Contains(current))
-                {
-                    AvailablePorts.Add(current);
-                }
-            });
-        }
-
         [RelayCommand(CanExecute = nameof(CanConnect))]
         private async Task ToggleConnectionAsync()
         {
@@ -456,6 +517,7 @@ namespace SyncBox.ViewModels
                 CancelLoop();
                 DisposeTransport();
                 IsConnected = false;
+                IsControllerDetected = false;
                 ConnectionSummary = "Disconnected";
                 StatusText = "Disconnected";
                 SaveSettings();
@@ -471,10 +533,57 @@ namespace SyncBox.ViewModels
             await ConnectSerialAsync();
         }
 
-        public bool CanConnect() => !IsDetecting;
+        public bool CanConnect() => !IsDetecting && !IsNetworkBusy;
 
         private async Task ConnectUdpAsync()
         {
+            string? networkNote = null;
+
+            if (networkNote is null && AutoFindOnNetwork)
+            {
+                LanScanResult scan = await ScanNetworkAsync();
+                if (scan.Scanned && scan.Devices.Count == 0)
+                {
+                    Message(scan.Summary + " Falling back to the configured controller address.");
+                }
+                else
+                {
+                    LanDevice? device = LanDiscovery.ChooseControllerDevice(
+                        scan.Devices,
+                        SelectedLanDevice?.AddressText ?? IpAddress);
+
+                    if (device is not null)
+                    {
+                        SelectedLanDevice = device;
+                        IpAddress = device.AddressText;
+                        networkNote = $"Connected to the controller found on the network: {device.DisplayName}.";
+                    }
+                    else if (scan.Devices.Count > 0)
+                    {
+                        Message(scan.Summary + " Falling back to the configured controller address.");
+                    }
+                }
+            }
+
+            if (networkNote is null && AutoDetectWifi)
+            {
+                // Nothing on the router answered: the controller may be running its own
+                // access point, so join the selected network when it is in range.
+                WifiJoinOutcome outcome = await JoinControllerWifiAsync();
+                if (outcome.Joined)
+                {
+                    networkNote = outcome.Summary;
+                    if (!string.IsNullOrWhiteSpace(outcome.ControllerAddress))
+                    {
+                        IpAddress = outcome.ControllerAddress!;
+                    }
+                }
+                else
+                {
+                    Message(outcome.Summary + " Falling back to the configured controller address.");
+                }
+            }
+
             if (!LedLimits.IsValidIp(IpAddress))
             {
                 Message($"'{IpAddress}' is not a valid IP address.", isError: true);
@@ -494,67 +603,189 @@ namespace SyncBox.ViewModels
                 return;
             }
 
-            FinishConnect(transport, $"UDP is connectionless: the controller is assumed to listen on {IpAddress}:{Port}.");
+            string connectionNote = networkNote is null
+                ? $"UDP is connectionless: the controller is assumed to listen on {IpAddress}:{Port}."
+                : $"{networkNote} UDP is connectionless: the controller is assumed to listen on {IpAddress}:{Port}.";
+            FinishConnect(transport, connectionNote);
         }
 
+        [RelayCommand(CanExecute = nameof(CanFindNetworkDevices))]
+        private async Task FindNetworkDevicesAsync()
+        {
+            LanScanResult result = await ScanNetworkAsync();
+            Message(result.Summary);
+        }
+
+        /// <summary>
+        /// Lists the devices the router has handed an address to and highlights the one
+        /// that identifies as a SyncBox controller. Nothing is connected here.
+        /// </summary>
+        private async Task<LanScanResult> ScanNetworkAsync()
+        {
+            if (IsNetworkBusy || IsDetecting)
+            {
+                return new LanScanResult(
+                    false,
+                    "Another scan is already running.",
+                    Array.Empty<LanDevice>(),
+                    Array.Empty<string>());
+            }
+
+            IsNetworkBusy = true;
+            NetworkStatusText = "Looking for devices on your network...";
+            int port = Port;
+
+            try
+            {
+                using var budget = new CancellationTokenSource(LanScanBudget);
+                var progress = new Progress<string>(text => NetworkStatusText = text);
+                LanScanResult result = await Task.Run(
+                    () => LanDiscovery.Scan(port, progress, budget.Token));
+
+                ApplyLanDevices(result.Devices);
+                NetworkStatusText = result.Summary;
+                return result;
+            }
+            catch (Exception ex)
+            {
+                NetworkStatusText = "The network scan failed: " + ex.Message;
+                return new LanScanResult(false, NetworkStatusText, Array.Empty<LanDevice>(), Array.Empty<string>());
+            }
+            finally
+            {
+                IsNetworkBusy = false;
+            }
+        }
+
+        private void ApplyLanDevices(IReadOnlyList<LanDevice> devices)
+        {
+            string? previous = SelectedLanDevice?.AddressText;
+
+            LanDevices.Clear();
+            foreach (LanDevice device in devices)
+            {
+                LanDevices.Add(device);
+            }
+
+            LanDevice? selection = previous is null
+                ? null
+                : LanDevices.FirstOrDefault(device =>
+                    string.Equals(device.AddressText, previous, StringComparison.OrdinalIgnoreCase));
+
+            SelectedLanDevice = selection ?? LanDiscovery.ChooseControllerDevice(LanDevices, null);
+            OnPropertyChanged(nameof(HasLanDevices));
+        }
+
+        [RelayCommand(CanExecute = nameof(CanScanWifi))]
+        private async Task ScanWifiAsync()
+        {
+            if (IsNetworkBusy || IsDetecting)
+            {
+                return;
+            }
+
+            IsNetworkBusy = true;
+            WifiStatusText = "Scanning the Wi-Fi networks in range...";
+            try
+            {
+                using var budget = new CancellationTokenSource(WifiScanBudget);
+                WifiScanResult result = await Task.Run(() => WifiController.Scan(null, budget.Token));
+                ApplyWifiNetworks(result.Networks);
+                WifiStatusText = result.Summary;
+                Message(result.Summary);
+            }
+            catch (Exception ex)
+            {
+                WifiStatusText = "The Wi-Fi scan failed: " + ex.Message;
+                Message(WifiStatusText, isError: true);
+            }
+            finally
+            {
+                IsNetworkBusy = false;
+            }
+        }
+
+        private async Task<WifiJoinOutcome> JoinControllerWifiAsync()
+        {
+            if (IsNetworkBusy)
+            {
+                return WifiJoinOutcome.Failed("Another Wi-Fi operation is already running.", Array.Empty<WifiNetwork>());
+            }
+
+            IsNetworkBusy = true;
+            WifiStatusText = "Searching for the SyncBox Wi-Fi network...";
+            string? preferredSsid = SelectedWifiNetwork?.Ssid;
+            string password = WifiPassword;
+
+            try
+            {
+                using var budget = new CancellationTokenSource(WifiJoinBudget);
+                var progress = new Progress<string>(text => WifiStatusText = text);
+                WifiJoinOutcome outcome = await Task.Run(
+                    () => WifiController.JoinController(preferredSsid, password, progress, budget.Token));
+
+                ApplyWifiNetworks(outcome.Networks);
+                WifiStatusText = outcome.Summary;
+                return outcome;
+            }
+            catch (Exception ex)
+            {
+                WifiStatusText = "The Wi-Fi connection failed: " + ex.Message;
+                return WifiJoinOutcome.Failed(WifiStatusText, Array.Empty<WifiNetwork>());
+            }
+            finally
+            {
+                IsNetworkBusy = false;
+            }
+        }
+
+        private void ApplyWifiNetworks(IReadOnlyList<WifiNetwork> networks)
+        {
+            // Every network in range is listed so the names are actually visible; the
+            // SyncBox ones are sorted to the top and marked by WifiDiscovery.
+            IReadOnlyList<WifiNetwork> ordered = WifiDiscovery.SortForDisplay(networks);
+            string? previous = SelectedWifiNetwork?.Ssid;
+
+            AvailableWifiNetworks.Clear();
+            foreach (WifiNetwork network in ordered)
+            {
+                AvailableWifiNetworks.Add(network);
+            }
+
+            WifiNetwork? selection = previous is null
+                ? null
+                : AvailableWifiNetworks.FirstOrDefault(network =>
+                    string.Equals(network.Ssid, previous, StringComparison.OrdinalIgnoreCase));
+
+            SelectedWifiNetwork = selection
+                ?? AvailableWifiNetworks.FirstOrDefault(network => network.LooksLikeController)
+                ?? AvailableWifiNetworks.FirstOrDefault();
+
+            OnPropertyChanged(nameof(HasWifiNetworks));
+        }
+
+        /// <summary>
+        /// The port is never chosen by hand: connecting runs the same handshake as
+        /// Detect, so the controller is identified (and remembered) automatically.
+        /// </summary>
         private async Task ConnectSerialAsync()
         {
-            string? detected = null;
-            string version = string.Empty;
-
-            if (AutoDetectDevice)
+            DetectionOutcome outcome = await DetectControllerAsync();
+            if (!outcome.Found)
             {
-                DetectionOutcome outcome = await DetectControllerAsync();
-                if (!outcome.Found)
-                {
-                    if (string.IsNullOrWhiteSpace(ComPort))
-                    {
-                        Message(outcome.Summary, isError: true);
-                        StatusText = "No controller";
-                        return;
-                    }
-
-                    Message(outcome.Summary + " Falling back to the selected port.", isError: true);
-                }
-                else
-                {
-                    detected = outcome.Device!.PortName;
-                    version = outcome.Device.FirmwareVersion;
-                }
+                Message(outcome.Summary, isError: true);
+                StatusText = "No controller";
+                return;
             }
 
-            string portName = detected ?? ComPort;
-            if (string.IsNullOrWhiteSpace(portName))
-            {
-                if (AvailablePorts.Count == 1)
-                {
-                    portName = AvailablePorts[0];
-                }
-                else
-                {
-                    Message(AvailablePorts.Count == 0
-                        ? "No serial ports were found. Connect the controller and press Detect device."
-                        : "Select a serial port before connecting.", isError: true);
-                    return;
-                }
-            }
-
-            if (!string.Equals(portName, ComPort, StringComparison.OrdinalIgnoreCase))
-            {
-                string previous = ComPort;
-                ComPort = portName;
-                if (!AvailablePorts.Contains(portName))
-                {
-                    AvailablePorts.Add(portName);
-                }
-
-                Message($"Switched from {previous} to {portName}.");
-            }
+            SyncBoxDevice device = outcome.Device!;
+            ComPort = device.PortName;
+            IsControllerDetected = true;
 
             ISyncTransport transport;
             try
             {
-                transport = new SerialTransport(portName, SelectedBaud);
+                transport = new SerialTransport(device.PortName, LedLimits.FixedBaudRate);
                 transport.Open();
             }
             catch (Exception ex)
@@ -564,18 +795,7 @@ namespace SyncBox.ViewModels
                 return;
             }
 
-            if (detected is not null)
-            {
-                DeviceVersionText = $"{version} on {detected}";
-            }
-            else
-            {
-                DeviceVersionText = "Unverified device on " + portName;
-            }
-
-            FinishConnect(transport, version.Length > 0
-                ? $"Controller answered the handshake: {version}."
-                : "Serial link open. The controller did not answer the handshake, so the port was not verified.");
+            FinishConnect(transport, $"Controller answered the handshake: {device.FirmwareVersion} on {device.PortName}.");
         }
 
         private void FinishConnect(ISyncTransport transport, string note)
@@ -583,6 +803,7 @@ namespace SyncBox.ViewModels
             if (transport is SerialTransport serial)
             {
                 serial.FrameReceived += OnDeviceFrame;
+                serial.TextAckReceived += OnTextAck;
             }
 
             DisposeTransport();
@@ -600,19 +821,14 @@ namespace SyncBox.ViewModels
             DetectionOutcome outcome = await DetectControllerAsync();
             if (!outcome.Found)
             {
+                IsControllerDetected = false;
                 Message(outcome.Summary, isError: true);
                 StatusText = "No controller";
-                DeviceVersionText = "No Sync Box controller answered";
                 return;
             }
 
             ComPort = outcome.Device!.PortName;
-            if (!AvailablePorts.Contains(ComPort))
-            {
-                AvailablePorts.Add(ComPort);
-            }
-
-            DeviceVersionText = $"{outcome.Device.FirmwareVersion} on {outcome.Device.PortName} @ {outcome.Device.BaudRate}";
+            IsControllerDetected = true;
             Message(outcome.Summary);
         }
 
@@ -626,22 +842,16 @@ namespace SyncBox.ViewModels
             IReadOnlyList<string> ports = SerialTransport.AvailablePorts();
             if (ports.Count == 0)
             {
-                return new DetectionOutcome(false, "No serial ports were found. Plug the controller in and press Refresh ports.");
+                return new DetectionOutcome(false, "No serial ports were found. Plug the controller in and press Detect.");
             }
 
             IsDetecting = true;
             string? preferred = ComPort;
-            int baud = SelectedBaud;
-            var attempts = new List<int> { baud };
-            foreach (int fallback in DeviceDiscovery.DefaultBaudRates)
-            {
-                if (!attempts.Contains(fallback))
-                {
-                    attempts.Add(fallback);
-                }
-            }
 
-            Post(() => Message($"Scanning {ports.Count} port(s) for a Sync Box controller..."));
+            // One baud rate only, the one the controller is known to speak.
+            IReadOnlyList<int> attempts = new[] { LedLimits.FixedBaudRate };
+
+            Post(() => Message($"Scanning {ports.Count} port(s) at {LedLimits.FixedBaudRate:N0} baud for a Sync Box controller..."));
 
             using var budget = new CancellationTokenSource(ScanBudget);
             try
@@ -656,8 +866,8 @@ namespace SyncBox.ViewModels
                 if (found.Count == 0)
                 {
                     return new DetectionOutcome(false, budget.IsCancellationRequested
-                        ? $"The port scan hit its {ScanBudget.TotalSeconds:0}s budget before a controller answered. Close other apps using the port, or pick it manually."
-                        : $"No controller answered on {string.Join(", ", ports)}. Check the cable and baud rate.");
+                        ? $"The port scan hit its {ScanBudget.TotalSeconds:0}s budget before a controller answered. Close other apps using the port and try again."
+                        : $"No controller answered on {string.Join(", ", ports)} at {LedLimits.FixedBaudRate:N0} baud. Check the cable and that the firmware runs at 1,000,000 baud.");
                 }
 
                 SyncBoxDevice device = found[0];
@@ -684,6 +894,14 @@ namespace SyncBox.ViewModels
                 return;
             }
 
+            ReleaseAckWait();
+        }
+
+        /// <summary>The controller answered with the plain letter O instead of a frame.</summary>
+        private void OnTextAck() => ReleaseAckWait();
+
+        private void ReleaseAckWait()
+        {
             try
             {
                 _ackSignal.Release();
@@ -854,7 +1072,7 @@ namespace SyncBox.ViewModels
                                     Post(() =>
                                     {
                                         RequireAck = false;
-                                        Message("The controller stopped acknowledging frames, so ACK waiting was turned off.", isError: true);
+                                        Message("The controller stopped acknowledging frames, so ACK waiting was turned off. Expected the letter O after every frame.", isError: true);
                                     });
                                 }
                             }
@@ -1093,6 +1311,7 @@ namespace SyncBox.ViewModels
             if (transport is SerialTransport serial)
             {
                 serial.FrameReceived -= OnDeviceFrame;
+                serial.TextAckReceived -= OnTextAck;
             }
 
             transport?.Dispose();

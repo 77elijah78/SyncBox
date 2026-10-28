@@ -2,12 +2,14 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:SyncBox"
-        Title="SyncBox" Height="860" Width="580" MinHeight="660" MinWidth="500"
+        Title="SyncBox" Height="860" Width="600" MinHeight="540" MinWidth="480"
         Background="{StaticResource SyncBgBrush}"
         Foreground="{StaticResource SyncTextBrush}"
         FontFamily="{StaticResource SyncFont}"
         WindowStartupLocation="CenterScreen"
-        UseLayoutRounding="True">
+        SnapsToDevicePixels="True"
+        UseLayoutRounding="True"
+        Icon="Assets/SyncBox.ico">
 
     <Window.Resources>
         <local:InverseBoolConverter x:Key="InverseBool" />
@@ -18,8 +20,10 @@
         <Style x:Key="Card" TargetType="Border">
             <Setter Property="Background" Value="{StaticResource SyncSurfaceBrush}" />
             <Setter Property="CornerRadius" Value="14" />
-            <Setter Property="Padding" Value="18" />
-            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="Padding" Value="20,18" />
+            <Setter Property="Margin" Value="0,0,0,12" />
+            <Setter Property="BorderBrush" Value="{StaticResource SyncBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
         </Style>
     </Window.Resources>
 
@@ -35,14 +39,25 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <StackPanel>
-                <TextBlock Text="SYNCBOX" FontSize="21" FontWeight="Black" />
-                <TextBlock Text="Screen-to-LED synchronization" FontSize="11" Foreground="{StaticResource SyncFaintBrush}" />
+            <StackPanel Orientation="Horizontal">
+                <Border Width="36" Height="36" CornerRadius="11" Margin="0,0,12,0"
+                        Background="{StaticResource SyncAccentGradient}">
+                    <Ellipse Width="16" Height="16" Stroke="White" StrokeThickness="3" />
+                </Border>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="SYNCBOX" FontSize="21" FontWeight="Black" />
+                    <TextBlock Text="Screen-to-LED synchronization" FontSize="11"
+                               Foreground="{StaticResource SyncFaintBrush}" />
+                </StackPanel>
             </StackPanel>
             <Border Grid.Column="1" VerticalAlignment="Center" CornerRadius="10" Padding="12,7"
+                    MaxWidth="260"
                     Background="{StaticResource SyncSurfaceBrush}"
-                    BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1">
-                <TextBlock Text="{Binding ConnectionSummary}" FontSize="11" Foreground="{StaticResource SyncMutedBrush}" />
+                    BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1"
+                    ToolTip="{Binding ConnectionSummary}">
+                <TextBlock Text="{Binding ConnectionSummary}" FontSize="11"
+                           Foreground="{StaticResource SyncMutedBrush}"
+                           TextTrimming="CharacterEllipsis" />
             </Border>
         </Grid>
 
@@ -54,7 +69,7 @@
 
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="CAPTURE ENGINE" Style="{StaticResource ProLabel}" />
+                                <ContentControl Style="{StaticResource SectionHeader}" Content="CAPTURE ENGINE" />
                                 <UniformGrid Columns="2" Height="40">
                                     <RadioButton Content="GPU / DXGI" Margin="0,0,4,0"
                                                  Style="{StaticResource SegmentedToggle}"
@@ -72,7 +87,7 @@
 
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="INTERFACE" Style="{StaticResource ProLabel}" />
+                                <ContentControl Style="{StaticResource SectionHeader}" Content="INTERFACE" />
                                 <UniformGrid Columns="2" Height="40" Margin="0,0,0,12">
                                     <RadioButton Content="USB SERIAL" Margin="0,0,4,0"
                                                  Style="{StaticResource SegmentedToggle}"
@@ -83,67 +98,114 @@
                                 </UniformGrid>
 
                                 <StackPanel Visibility="{Binding UseWifi, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
-                                    <TextBlock Text="PORT" Style="{StaticResource FieldLabel}" />
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <ComboBox ItemsSource="{Binding AvailablePorts}"
-                                                  SelectedItem="{Binding ComPort}" />
-                                        <Button x:Name="DetectDeviceButton" Grid.Column="1" Content="Detect" Height="34"
-                                                MinWidth="84" Margin="8,0,0,0"
-                                                Command="{Binding DetectDeviceCommand}" />
-                                        <Button Grid.Column="2" Content="Refresh" Height="34" MinWidth="84"
-                                                Margin="8,0,0,0" Command="{Binding RefreshSerialPortsCommand}" />
-                                    </Grid>
-
-                                    <CheckBox Content="Pick the port automatically on connect"
-                                              IsChecked="{Binding AutoDetectDevice}" Margin="0,14,0,0" />
-
-                                    <Border Background="{StaticResource SyncFieldBrush}" CornerRadius="8"
-                                            Padding="10,8" Margin="0,10,0,0"
-                                            BorderBrush="{StaticResource SyncBorderBrush}" BorderThickness="1">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding DeviceVersionText}" FontSize="11"
-                                                       Foreground="{StaticResource SyncMutedBrush}"
-                                                       TextWrapping="Wrap" />
-                                            <TextBlock Text="Detection sends AF 05 D1 and waits for the controller to answer with Sync Box V1.0."
-                                                       FontSize="10" Foreground="{StaticResource SyncFaintBrush}"
-                                                       TextWrapping="Wrap" Margin="0,4,0,0" />
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Ellipse Width="9" Height="9" VerticalAlignment="Center"
+                                                     Fill="{Binding IsControllerDetected, Converter={StaticResource ConnectionColor}}" />
+                                            <TextBlock Text="{Binding ControllerStatusText}" Margin="8,0,0,0"
+                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                       Foreground="{StaticResource SyncMutedBrush}" />
                                         </StackPanel>
-                                    </Border>
-
-                                    <TextBlock Text="BAUD RATE" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
-                                    <ComboBox ItemsSource="{Binding BaudRates}" SelectedItem="{Binding SelectedBaud}">
-                                        <ComboBox.ItemTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding StringFormat=N0}" />
-                                            </DataTemplate>
-                                        </ComboBox.ItemTemplate>
-                                    </ComboBox>
+                                        <Button x:Name="DetectDeviceButton" Grid.Column="1" Content="Detect"
+                                                Height="34" MinHeight="34" MinWidth="96"
+                                                Command="{Binding DetectDeviceCommand}"
+                                                ToolTip="Search the USB ports for the controller." />
+                                    </Grid>
                                 </StackPanel>
 
                                 <StackPanel Visibility="{Binding UseWifi, Converter={StaticResource BoolToVisibility}}">
-                                    <TextBlock Text="CONTROLLER IP" Style="{StaticResource FieldLabel}" />
-                                    <TextBox Text="{Binding IpAddress, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True, NotifyOnValidationError=True}" />
-                                    <TextBlock Text="UDP PORT" Style="{StaticResource FieldLabel}" Margin="0,10,0,0" />
-                                    <TextBox Text="{Binding Port, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True, NotifyOnValidationError=True}" />
-                                    <TextBlock Text="UDP is connectionless: SyncBox cannot confirm the controller is listening."
-                                               FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
+                                    <TextBlock Text="DEVICES ON YOUR NETWORK" Style="{StaticResource FieldLabel}" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid>
+                                            <ComboBox ItemsSource="{Binding LanDevices}"
+                                                      SelectedItem="{Binding SelectedLanDevice}"
+                                                      DisplayMemberPath="DisplayName"
+                                                      ToolTip="Devices that answered on the router your PC is connected to." />
+                                            <TextBlock Text="No devices found yet" Margin="12,0,0,0"
+                                                       VerticalAlignment="Center" IsHitTestVisible="False"
+                                                       FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
+                                                       Visibility="{Binding HasLanDevices, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
+                                        </Grid>
+                                        <Button x:Name="FindNetworkDevicesButton" Grid.Column="1" Content="Scan" Height="34" MinHeight="34"
+                                                MinWidth="84" Margin="8,0,0,0"
+                                                Command="{Binding FindNetworkDevicesCommand}"
+                                                ToolTip="List the devices connected to your router and look for the SyncBox controller." />
+                                    </Grid>
+
+                                    <CheckBox Content="Find the controller automatically"
+                                              IsChecked="{Binding AutoFindOnNetwork}" Margin="0,14,0,0" />
+
+                                    <TextBlock Text="{Binding NetworkStatusText}" FontSize="11"
+                                               Foreground="{StaticResource SyncFaintBrush}"
                                                TextWrapping="Wrap" Margin="0,10,0,0" />
+
+                                    <UniformGrid Columns="2" Margin="0,12,0,0">
+                                        <StackPanel Margin="0,0,5,0">
+                                            <TextBlock Text="CONTROLLER IP" Style="{StaticResource FieldLabel}" />
+                                            <TextBox Text="{Binding IpAddress, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True, NotifyOnValidationError=True}" />
+                                        </StackPanel>
+                                        <StackPanel Margin="5,0,0,0">
+                                            <TextBlock Text="UDP PORT" Style="{StaticResource FieldLabel}" />
+                                            <TextBox Text="{Binding Port, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True, NotifyOnValidationError=True}" />
+                                        </StackPanel>
+                                    </UniformGrid>
+
+                                    <Border Height="1" Background="{StaticResource SyncBorderBrush}" Margin="0,16,0,0" />
+
+                                    <TextBlock Text="WI-FI NETWORKS IN RANGE" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid>
+                                            <ComboBox ItemsSource="{Binding AvailableWifiNetworks}"
+                                                      SelectedItem="{Binding SelectedWifiNetwork}"
+                                                      DisplayMemberPath="DisplayName"
+                                                      ToolTip="Every network Windows can see. SyncBox ones are listed first." />
+                                            <TextBlock Text="No Wi-Fi networks found yet" Margin="12,0,0,0"
+                                                       VerticalAlignment="Center" IsHitTestVisible="False"
+                                                       FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
+                                                       Visibility="{Binding HasWifiNetworks, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
+                                        </Grid>
+                                        <Button x:Name="ScanWifiButton" Grid.Column="1" Content="Scan" Height="34" MinHeight="34"
+                                                MinWidth="84" Margin="8,0,0,0"
+                                                Command="{Binding ScanWifiCommand}"
+                                                ToolTip="List the Wi-Fi networks in range and mark the SyncBox ones." />
+                                    </Grid>
+
+                                    <TextBlock Text="{Binding WifiStatusText}" FontSize="11"
+                                               Foreground="{StaticResource SyncFaintBrush}"
+                                               TextWrapping="Wrap" Margin="0,10,0,0" />
+
+                                    <CheckBox Content="Join the selected Wi-Fi network if needed"
+                                              IsChecked="{Binding AutoDetectWifi}" Margin="0,12,0,0" />
+
+                                    <TextBlock Text="WIFI PASSWORD (OPTIONAL)" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
+                                    <PasswordBox x:Name="WifiPasswordBox" MaxLength="128"
+                                                 PasswordChanged="OnWifiPasswordChanged"
+                                                 ToolTip="Only needed when that network is secured. Saved in settings.json on this PC." />
                                 </StackPanel>
 
-                                <Button Content="{Binding ConnectButtonText}" Height="46" Margin="0,16,0,0"
+                                <Button Content="{Binding ConnectButtonText}" Height="50" Margin="0,18,0,0"
+                                        FontSize="14" FontWeight="Black"
                                         Command="{Binding ToggleConnectionCommand}"
-                                        Background="{StaticResource SyncAccentBrush}" />
+                                        Background="{StaticResource SyncAccentGradient}"
+                                        BorderBrush="{StaticResource SyncAccentBrush}" />
                             </StackPanel>
                         </Border>
 
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="TARGET" Style="{StaticResource ProLabel}" />
+                                <ContentControl Style="{StaticResource SectionHeader}" Content="TARGET" />
                                 <UniformGrid Columns="2" Height="40" Margin="0,0,0,12">
                                     <RadioButton Content="Full desktop" Margin="0,0,4,0"
                                                  Style="{StaticResource SegmentedToggle}"
@@ -175,11 +237,11 @@
                                         </ComboBox>
                                     </StackPanel>
                                     <Button Grid.Column="1" Content="Refresh" Margin="10,0,0,0"
-                                            VerticalAlignment="Bottom" Height="34"
+                                            VerticalAlignment="Bottom" Height="34" MinHeight="34"
                                             Command="{Binding RefreshWindowsCommand}" />
                                 </Grid>
 
-                                <CheckBox Content="Cinematic mode (ignore letterbox and pillarbox bars)"
+                                <CheckBox Content="Cinematic mode"
                                           IsChecked="{Binding IsCinematicMode}" Margin="0,14,0,0" />
 
                                 <TextBlock Text="BAR DETECTION THRESHOLD" Style="{StaticResource FieldLabel}" Margin="0,14,0,0" />
@@ -199,7 +261,7 @@
 
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="TRANSPORT" Style="{StaticResource ProLabel}" />
+                                <ContentControl Style="{StaticResource SectionHeader}" Content="TRANSPORT" />
                                 <TextBlock Text="FRAME RATE LIMIT" Style="{StaticResource FieldLabel}" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -214,19 +276,32 @@
 
                                 <CheckBox Content="Wait for a device ACK after every frame"
                                           IsChecked="{Binding RequireAck}" Margin="0,8,0,0" />
-                                <TextBlock Text="Leave this off unless the controller firmware sends 0xAA 0x55 ACK frames. Each ACK is waited on for at most 12 ms."
+                                <TextBlock Text="Answer with O or AA 55 02. Waits 12 ms per frame."
                                            FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
                                            TextWrapping="Wrap" Margin="0,8,0,0" />
                             </StackPanel>
                         </Border>
 
                         <UniformGrid Columns="2" Margin="0,4,0,12">
-                            <Button Content="START" Height="58" Margin="0,0,5,0"
-                                    Background="{StaticResource SyncSuccessBrush}" Foreground="Black"
-                                    FontWeight="Black" Command="{Binding StartCommand}" />
-                            <Button Content="STOP" Height="58" Margin="5,0,0,0"
+                            <Button Height="60" Margin="0,0,5,0"
+                                    Background="{StaticResource SyncSuccessBrush}" Foreground="#04240F"
+                                    FontSize="15" FontWeight="Black" Command="{Binding StartCommand}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#x25B6;" FontSize="15" VerticalAlignment="Center"
+                                               Foreground="#04240F" />
+                                    <TextBlock Text="START" Margin="9,0,0,0" VerticalAlignment="Center"
+                                               Foreground="#04240F" FontWeight="Black" />
+                                </StackPanel>
+                            </Button>
+                            <Button Height="60" Margin="5,0,0,0"
                                     Background="{StaticResource SyncDangerBrush}"
-                                    Command="{Binding StopCommand}" />
+                                    FontSize="15" Command="{Binding StopCommand}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#x25A0;" FontSize="13" VerticalAlignment="Center" Foreground="White" />
+                                    <TextBlock Text="STOP" Margin="9,0,0,0" VerticalAlignment="Center"
+                                               Foreground="White" FontWeight="SemiBold" />
+                                </StackPanel>
+                            </Button>
                         </UniformGrid>
 
                     </StackPanel>
@@ -238,11 +313,7 @@
                     <StackPanel>
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="COLOUR PIPELINE" Style="{StaticResource ProLabel}" />
-                                <TextBlock Text="Colours are decoded from sRGB to linear, adjusted, then re-encoded. Gamma therefore behaves like a display gamma, not a second sRGB curve."
-                                           FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
-                                           TextWrapping="Wrap" Margin="0,0,0,14" />
-
+                                <ContentControl Style="{StaticResource SectionHeader}" Content="COLOUR PIPELINE" />
                                 <TextBlock Text="BRIGHTNESS" Style="{StaticResource FieldLabel}" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -286,7 +357,7 @@
 
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="RESPONSE" Style="{StaticResource ProLabel}" />
+                                <ContentControl Style="{StaticResource SectionHeader}" Content="RESPONSE" />
                                 <TextBlock Text="SMOOTHING" Style="{StaticResource FieldLabel}" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -322,10 +393,134 @@
 
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="SETTINGS" Style="{StaticResource ProLabel}" />
-                                <TextBlock Text="{Binding SettingsPath}" FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
-                                           TextWrapping="Wrap" Margin="0,0,0,12" />
-                                <Button Content="Save settings now" Command="{Binding PersistSettingsCommand}" />
+                                <ContentControl Style="{StaticResource SectionHeader}" Content="SETTINGS" />
+                                <Button Content="Save settings" Command="{Binding PersistSettingsCommand}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="GUIDE" Style="{StaticResource SyncTabItem}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,8,0">
+                    <StackPanel>
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <ContentControl Style="{StaticResource SectionHeader}" Content="QUICK START" />
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Style="{StaticResource StepBadge}">
+                                        <TextBlock Text="1" Style="{StaticResource StepText}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="Power the controller" FontWeight="SemiBold" />
+                                        <TextBlock Text="Plug it into USB, or make sure it is switched on and joined to the same router as this PC." FontSize="11"
+                                                   Foreground="{StaticResource SyncFaintBrush}"
+                                                   TextWrapping="Wrap" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Style="{StaticResource StepBadge}">
+                                        <TextBlock Text="2" Style="{StaticResource StepText}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="Choose the interface" FontWeight="SemiBold" />
+                                        <TextBlock Text="USB SERIAL for the cable, WI-FI / UDP for the network." FontSize="11"
+                                                   Foreground="{StaticResource SyncFaintBrush}"
+                                                   TextWrapping="Wrap" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Style="{StaticResource StepBadge}">
+                                        <TextBlock Text="3" Style="{StaticResource StepText}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="Detect or Scan" FontWeight="SemiBold" />
+                                        <TextBlock Text="USB: press Detect, the dot turns green when the controller answers. Wi-Fi: press Scan to list the devices on your router." FontSize="11"
+                                                   Foreground="{StaticResource SyncFaintBrush}"
+                                                   TextWrapping="Wrap" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Style="{StaticResource StepBadge}">
+                                        <TextBlock Text="4" Style="{StaticResource StepText}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="Connect" FontWeight="SemiBold" />
+                                        <TextBlock Text="The CONNECT button opens the link. The controller is found automatically, nothing has to be typed." FontSize="11"
+                                                   Foreground="{StaticResource SyncFaintBrush}"
+                                                   TextWrapping="Wrap" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Style="{StaticResource StepBadge}">
+                                        <TextBlock Text="5" Style="{StaticResource StepText}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="Start" FontWeight="SemiBold" />
+                                        <TextBlock Text="Press START and the LEDs follow the screen. STOP ends the stream, DISCONNECT closes the link." FontSize="11"
+                                                   Foreground="{StaticResource SyncFaintBrush}"
+                                                   TextWrapping="Wrap" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <ContentControl Style="{StaticResource SectionHeader}" Content="GOOD TO KNOW" />
+                                <TextBlock Text="&#x2022;  The serial link always runs at 1,000,000 baud and is never picked by hand."
+                                           FontSize="11" Foreground="{StaticResource SyncMutedBrush}"
+                                           TextWrapping="Wrap" Margin="0,0,0,6" />
+                                <TextBlock Text="&#x2022;  The Wi-Fi list is built like the router&#39;s client table: a device is listed when it answers a ping or a name question, or when the ARP table has its own MAC. A device without a name shows its MAC instead."
+                                           FontSize="11" Foreground="{StaticResource SyncMutedBrush}"
+                                           TextWrapping="Wrap" Margin="0,0,0,6" />
+                                <TextBlock Text="&#x2022;  LED layout is set in the LEDS tab: H LEDs along each horizontal edge and V along each vertical edge, so the ring holds 2 x (H + V) LEDs."
+                                           FontSize="11" Foreground="{StaticResource SyncMutedBrush}"
+                                           TextWrapping="Wrap" Margin="0,0,0,6" />
+                                <TextBlock Text="&#x2022;  With ACK enabled the controller answers every frame with the letter O (or a binary AA 55 02 frame); the wait is 12 ms per frame."
+                                           FontSize="11" Foreground="{StaticResource SyncMutedBrush}"
+                                           TextWrapping="Wrap" Margin="0,0,0,6" />
+                                <TextBlock Text="&#x2022;  Settings save themselves on connect, disconnect and close. Tuning values can be reset in the TUNING tab."
+                                           FontSize="11" Foreground="{StaticResource SyncMutedBrush}"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <ContentControl Style="{StaticResource SectionHeader}" Content="IF SOMETHING DOES NOT WORK" />
+                                <TextBlock Text="No controller on USB" FontWeight="SemiBold" FontSize="11" />
+                                <TextBlock Text="Close other programs that hold the port (Arduino IDE, serial monitors), then press Detect again."
+                                           FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
+                                           TextWrapping="Wrap" Margin="0,2,0,10" />
+                                <TextBlock Text="Controller missing from the Wi-Fi list" FontWeight="SemiBold" FontSize="11" />
+                                <TextBlock Text="Both devices must be on the same router. A guest network, AP isolation or a VPN can hide them from each other."
+                                           FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
+                                           TextWrapping="Wrap" Margin="0,2,0,10" />
+                                <TextBlock Text="Nothing lights up" FontWeight="SemiBold" FontSize="11" />
+                                <TextBlock Text="Check that the LED count in the LEDS tab matches the strip, then raise the brightness in TUNING."
+                                           FontSize="11" Foreground="{StaticResource SyncFaintBrush}"
+                                           TextWrapping="Wrap" Margin="0,2,0,0" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -337,7 +532,7 @@
                     <StackPanel>
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="LAYOUT" Style="{StaticResource ProLabel}" />
+                                <ContentControl Style="{StaticResource SectionHeader}" Content="LAYOUT" />
                                 <UniformGrid Columns="2">
                                     <StackPanel Margin="0,0,5,0">
                                         <TextBlock Text="HORIZONTAL PER EDGE" Style="{StaticResource FieldLabel}" />
@@ -359,7 +554,7 @@
 
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="LIVE OUTPUT PREVIEW" Style="{StaticResource ProLabel}" />
+                                <ContentControl Style="{StaticResource SectionHeader}" Content="LIVE OUTPUT PREVIEW" />
                                 <ItemsControl ItemsSource="{Binding LedPreviewItems}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
@@ -398,7 +593,7 @@
                 </StackPanel>
 
                 <TextBlock Grid.Column="1" Margin="16,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                           Text="{Binding MessageText}">
+                           Text="{Binding MessageText}" ToolTip="{Binding MessageText}">
                     <TextBlock.Style>
                         <Style TargetType="TextBlock">
                             <Setter Property="Foreground" Value="{StaticResource SyncFaintBrush}" />

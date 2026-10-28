@@ -46,6 +46,9 @@ namespace SyncBox.Services
 
         public event Action<LedFrame>? FrameReceived;
 
+        /// <summary>Raised when the device answers with the plain letter O instead of a frame.</summary>
+        public event Action? TextAckReceived;
+
         public string Name => $"Serial {_portName} @ {_baudRate}";
 
         public bool IsOpen => _port is { IsOpen: true };
@@ -175,7 +178,16 @@ namespace SyncBox.Services
                 int read = port.Read(buffer, 0, buffer.Length);
                 if (read > 0)
                 {
-                    _reader.Append(buffer.AsSpan(0, read));
+                    ReadOnlySpan<byte> chunk = buffer.AsSpan(0, read);
+                    int textAcks = LedProtocol.CountTextAcks(chunk);
+                    _reader.Append(chunk);
+
+                    // A single letter is enough for the waiting frame loop, the flag is
+                    // reused by every acknowledgement in the chunk.
+                    for (int index = 0; index < textAcks; index++)
+                    {
+                        TextAckReceived?.Invoke();
+                    }
                 }
             }
             catch (Exception ex) when (ex is TimeoutException or IOException or InvalidOperationException)

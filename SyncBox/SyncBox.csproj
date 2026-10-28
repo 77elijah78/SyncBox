@@ -11,9 +11,14 @@
     <RootNamespace>SyncBox</RootNamespace>
     <Product>SyncBox</Product>
     <Description>Screen-to-LED synchronization controller</Description>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
+    <ApplicationIcon>Assets\SyncBox.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\SyncBox.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />

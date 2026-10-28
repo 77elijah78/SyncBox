@@ -244,13 +244,13 @@ namespace SyncBox.Tests
             "settings.json");
 
         [Fact]
-        public void AutoDetectDefaultsToOnAndRoundTrips()
+        public void TheBaudRateIsAlwaysStoredAsOneMillion()
         {
             var service = new SettingsService(_path);
-            Assert.True(service.Load().AutoDetectDevice);
+            Assert.Equal(1000000, service.Load().BaudRate);
 
-            service.TrySave(new AppSettings { AutoDetectDevice = false });
-            Assert.False(service.Load().AutoDetectDevice);
+            service.TrySave(new AppSettings { BaudRate = 115200 });
+            Assert.Equal(1000000, service.Load().BaudRate);
         }
 
         public void Dispose()
